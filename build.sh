@@ -7181,6 +7181,131 @@ bash kernel/gate_k5b2.sh || exit 1
 #  re-measure), so the repair branch is dead code and a green would prove nothing.
 #  See kernel/SELFREPAIR_3d_DESIGN.md. Wiring a knowingly-red gate would train
 #  everyone to ignore this section.
+#
+# ══ GATE CENSUS, 2026-09-08 — 30 of 89 gate scripts are never invoked ═════════
+#  Filed by track A's hub after track B found gate_link_layout.sh unwired and A
+#  landed 1af490d for the same class. I did NOT take the count: I wrote a second
+#  instrument independently and it agrees exactly, 30 of 89, same names. Two
+#  independently-written tools converging is the corroboration; neither one's
+#  internals are.
+#
+#  ★ STATE THE DENOMINATOR OR STATE NOTHING — the 08-28 note's rule, and I broke
+#  it twice today before getting here. "89" is `git ls-files` globbed `gate_*.sh`,
+#  root + kernel. It is NOT 52: that measurement covered kernel-k1's 52 scripts
+#  and never reached track-d's territory, which has grown by 37 since. And a
+#  count taken in a worktree with uncommitted work is unreadable by another
+#  track — A COUNT IS A CITATION. These are tracked-file counts.
+#
+#  ★ METHOD, because three greps in a row got this wrong before mine did:
+#  invocation is COMMAND POSITION (`bash X`, `./X`, `if ./X; then`), never a bare
+#  name. My first pass omitted the CONDITIONAL keywords and reported three LIVE
+#  gates dead (gate_abspath/gate_asmelf/gate_asmelf_extern, all invoked at
+#  build.sh:45/2251/2273 behind `if`) — the dangerous direction, and precisely the
+#  failure the note above records costing staffed labour. My second pass counted a
+#  bare relative path as a call and reported a DEAD gate alive, because a prose
+#  mention inside a PYTHON DOCSTRING is invisible to '#'-comment stripping.
+#  A mention is prose; the call site is the evidence.
+#
+#  ── the disposition of all 30 ────────────────────────────────────────────────
+#   3  documented deliberate already: gate_hal3d (above), gate_bootelf (~26 min,
+#      invoked separately), gate_rss (named above as a real candidate).
+#   1  ★ KNOWINGLY RED, and this is its documentation: kernel/gate_alloc_bounded.sh
+#      says so in its own header — "It must not. Today it does, so this gate is RED
+#      on purpose" — and it genuinely exits FAIL (3x work costs ~1.74x memory; the
+#      GC reclaims but never plateaus). SAME CLASS AS gate_hal3d: wiring it turns
+#      this suite red for a known, recorded defect. NOT WIRED, deliberately.
+#      It ALSO carried the skip-to-green defect and is fixed (2026-09-08): its
+#      absent-tiny_host path said SKIP + exit 0 and now FAILs. ★ The line drawn
+#      there is ENVIRONMENT vs ARTIFACT — skipping on an absent /usr/bin/time is
+#      legitimate and was LEFT ALONE (the machine cannot measure RSS, exactly as a
+#      gate skips on absent QEMU), but tiny_host and native_codegen3.la are things
+#      THIS REPO BUILDS, so their absence means the gate could not test its subject.
+#   1  parked by design: kernel/gate_dinit1.sh — D-INIT.1's runtime half is PARKED,
+#      see kernel/LOGOSINIT_SCOPE.md. Its supervision primitive is superseded by
+#      the P1..P7 process-model bricks (P4 `pwait` is the process-level `reap`).
+#   3  ★ WERE SKIP-SATISFIABLE — FIXED 2026-09-08, and this is why they were not
+#      simply wired. gate_hal4e / gate_hal4f / gate_hal4g each `exit 0` with a SKIP
+#      when their kernel ELF was absent, and those ELFs are gitignored build
+#      artifacts — so on a fresh checkout they asserted NOTHING and said so with a
+#      success code. Wiring them in that state would have ADDED A FALSE GREEN here,
+#      which is worse than leaving them out.
+#      All three now FAIL LOUDLY instead (red-tested: ELF moved aside -> rc 1 on
+#      each, message "tested NOTHING"). The build is OPT-IN (LOGOS_GATE_BUILD=1),
+#      not automatic, and that is measured rather than assumed: build_hal4f.sh's own
+#      header records 38m01s and 41m24s on two runs, comp_edit is ~49 min
+#      (gate_hal_idle.sh:78), and gate_hal_idle records that auto-building THESE
+#      kernels "was rejected on cost". An unconditional build would silently turn
+#      any suite that wires them into a multi-hour run. Note the opt-in is the
+#      OPPOSITE of the skip flag this file forbids: without it the gate FAILS, so
+#      there is no way to make it report success without running the kernel.
+#      Still unwired pending a cost decision on the out-of-band ELFs — but no longer
+#      able to pass on an empty set, which was the blocker.
+#
+#  ── skip-satisfiable, final tally: 5 found, 4 FIXED, 1 NOT MINE ─────────────
+#  The three above plus gate_alloc_bounded (all in kernel/, all fixed and each
+#  red-tested by moving its artifact aside and requiring rc 1). The fifth is
+#  ./gate_rss.sh, which `~/logos-tracks.conf` assigns to TRACK A — it skips + exits
+#  0 when tiny_host / native_codegen3.la / heapscope.py are missing, the same
+#  artifact-not-environment defect. REPORTED TO A, NOT TOUCHED: it is theirs.
+#  ★ AND IT IS NO LONGER UNWIRED — line 7326 below, calling it "a real candidate,
+#  still unwired", is stale as of TODAY: A wired it on kernel-k1 (bbcbc8f,
+#  kernel-k1:build.sh:3397, costed 6.7 min). Caught by the pre-commit hook's
+#  "another branch also changed build.sh" warning, which exists because one stale
+#  constant was once fixed twice on two branches — it earned its keep in the other
+#  direction here. Wiring makes the skip path REACHABLE BY THE SUITE rather than by
+#  nobody, and the inconsistency sits INSIDE A's own commit: at the call site
+#  (kernel-k1:build.sh:3396) A wrote "a gate file missing means a broken checkout,
+#  not an optional check" -> FAIL, while the gate two lines later applies the
+#  opposite rule to its own inputs -> SKIP, exit 0. Honest scope: in a normal run
+#  all three files exist, so this is broken-checkout hardening, not a live false
+#  green.
+#  16  the nic5c..nic5r series. ★ THE COST IS THE COMPILE, NOT THE QEMU RUN: each
+#      rebuilds its LA driver through tiny_host (ROADMAP measures HAL.5c at ~12 min,
+#      HAL.5q at ~51 min) while the QEMU timeouts are only 60s. Sixteen of those in
+#      this suite is many hours, so they belong on the gate_bootelf footing —
+#      invoked separately, not opted out of. ★ AND ROADMAP.md MARKS ALL SIXTEEN
+#      "[x] DONE + gated" WHILE NOTHING RUNS THEM, which is a documented claim the
+#      suite cannot support — the same defect this file records about its own
+#      verified-* checkpoint tag. Correcting that claim matters more than wiring.
+#   1  ★ A THIRD KNOWINGLY-RED GATE, and I nearly wired it: kernel/gate_hal_idle.sh
+#      says in its own header "THIS GATE IS EXPECTED TO BE RED... committed RED on
+#      purpose". It documents a real SUBSTRATE defect measured 2026-07-18 — left
+#      idle 90 s, comp_text/comp_term/comp_edit all die (EXCEPTION 0e/06/06), because
+#      the LA heap grows up from 68 MiB with nothing bounding it below 16.07 GiB
+#      while POLL boxes an int per spin, so the heap climbs into the stack and a
+#      return address becomes a heap pointer. THE DEFECT IS IN TRACK A'S FILE
+#      (native_codegen3_rt.asm / rt_init), so D cannot fix it and will not paper
+#      over it. NOT WIRED, deliberately — the hal3d rule. It was in my own
+#      "wiring candidates" bucket until I read it: INVOCATION IS NOT HEALTH, and a
+#      census that classifies by structure will hand you a red gate to wire.
+#   5  the genuine wiring candidates, all of which BUILD their prerequisite and
+#      fail loudly: gate_comp_term_hal4e, gate_pointer, gate_wheel,
+#      gate_cursor, gate_mouse. ★ NOT superseded by the fault-presenting gates
+#      wired below — I tested that and it is FALSE. gate_mouse_bounded /
+#      gate_ps2_bounded present a FAULTY device and assert the driver BOUNDS ITS
+#      WAIT (robustness); these four inject REAL motion and assert it DECODES —
+#      sign extension, the IntelliMouse knock, the sprite on the LFB (function).
+#      Different assertions. Wiring waits on measuring their cost.
+#
+#  CHECKED AND CLEARED, so nobody re-runs it: the INVOKED gates do not skip their
+#  way to green. Of 49 invoked kernel gates, 5 matched a skip pattern; on reading,
+#  they skip on absent QEMU or an absent build DRIVER, and the bounded ones build
+#  their control and fail loudly if that build fails.
+#
+#  ★★ BUT LOOKING FOR THAT FOUND A LIVE ONE, AND IT IS THE MORE SERIOUS FINDING —
+#  because it is in gates that RUN IN THIS SUITE TODAY AND REPORT PASS. Five gates
+#  guarded their RED CONTROL with `if [ -f kernel/kernel_*_ctrl.elf ]` and NO
+#  `else`. The control BUILD above each one fails loudly, so the only way in is a
+#  build that exits 0 without producing the ELF — narrow, but on that path the
+#  discriminating half of the gate DISAPPEARS WITH NO LINE OF OUTPUT and the gate
+#  still PASSes. Four of the five are invoked here (gate_hal3c, gate_hal3bc,
+#  gate_mouse_bounded, gate_ps2_bounded — the last twice, pointer and cursor); the
+#  fifth is gate_hal3d, unwired above. ALL FIVE NOW FAIL LOUDLY INSTEAD.
+#  Measured, and the detector red-tested against the committed blobs before it was
+#  believed: 5 at HEAD, 0 after the fix. A gate must never skip past its own
+#  control — Track E's finding from the other side, and these are the specimens
+#  inside our own fault-presenting gates, which exist precisely to refuse this.
+# ═════════════════════════════════════════════════════════════════════════════
 say "Driver bounds — the fault-presenting gates (Freeze Q3, ~58 min)"
 bash kernel/gate_hal3c.sh        || exit 1   # ~5m  ATA read: bounded wait, diagnosed
 bash kernel/gate_mouse_bounded.sh || exit 1  # ~9m  PS/2 mouse: owed waits bounded
@@ -7286,6 +7411,27 @@ bash kernel/gate_p2.sh --r2 || exit 1   # R2  attribution — the pid follows th
 bash kernel/gate_p2.sh --r3 || exit 1   # R3  containment vs MASKING ★
 bash kernel/gate_p2.sh --r4 || exit 1   # R4  isolation has power
 bash kernel/gate_p2.sh --r5 || exit 1   # R5  vector fidelity (#PF: vec 0e, err, CR2)
+
+say "LogosInit P3 — pspawn: a process created after boot, BY RING 3"
+# P1 built its three processes AT BOOT through the low identity map. P3 does the same
+# work AT RUNTIME under a process's CR3, where that map is gone — every page-table and
+# frame write goes through the high alias instead. ring 3 calls pspawn(), RECEIVES the
+# child's pid, and the scheduler enters that child when the caller exits.
+#
+# ★ The discriminator is DEPTH, and it is the whole design of the gate: a transcript
+# showing a FOURTH process is exactly what `P1_NPROC equ 4` would also print, so the
+# gate asserts that CHILD 4 ITSELF SPAWNS CHILD 5. --r4 is the only control that
+# separates P3 from that one-character change, which is why it is not optional here.
+bash kernel/gate_p3.sh || exit 1        # P3 pspawn: 5 processes, depth 2, exit 33
+# Five red controls. Every one md5s the ELF and fails if the perturbation produced a
+# byte-identical image FIRST — an absorbed break and a working assertion look the same
+# from the gate's response alone (§5.0.3 guard 1, paid for during P2). Note --red: the
+# baseline exits 33, the SAME as green, so a gate keyed on exit status would pass it.
+bash kernel/gate_p3.sh --red || exit 1  # R1 baseline: announced-but-unimplemented
+bash kernel/gate_p3.sh --r2 || exit 1   # R2  the address space is really built
+bash kernel/gate_p3.sh --r3 || exit 1   # R3  announcing is not creating ★
+bash kernel/gate_p3.sh --r4 || exit 1   # R4  depth has power ★ (the discriminator)
+bash kernel/gate_p3.sh --r5 || exit 1   # R5  bounded and loud at capacity
 
 say "K6 — ring 3, syscalls, and the typed IPC layer"
 bash kernel/gate_k6a.sh || exit 1   # K6a ring-3 privilege drop

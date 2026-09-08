@@ -975,6 +975,101 @@ exactly the one that matters here.)
 
 ---
 
+### 5.0.4 P3's gate — `pspawn`, a process created after boot (design, 2026-09-08)
+
+P1 built its three processes **at boot**, in 32-bit-ish code writing page tables
+through the low identity map, before any CR3 was a process's. P3 must do the same
+work **at runtime, from ring 3, under a process's CR3** — where that identity map
+is gone. That relocation is the whole brick, and it is why P3 is the largest one.
+
+**The discriminator, and it is the hard question this design had to answer.**
+P1's was easy: *"nothing hardcoded for two produces a third."* P3's is not, because
+a serial line showing a fourth process is exactly what `P1_NPROC equ 4` would also
+print. A gate that only asserts "a fourth process ran" **cannot tell `pspawn` from
+a bigger boot table** — it would go green against a one-character change that
+contains no P3 at all.
+
+**★ The discriminator is DEPTH: a spawned process spawns.** Process 1 spawns
+child 4; **child 4 then spawns child 5**. A pre-baked slot yields a fourth
+process; nothing pre-baked yields a fifth *created by the fourth*. It is also the
+exact property P5 needs — init spawns every other organ, and init's children must
+themselves be able to — so the assertion is not a trick to defeat the null
+hypothesis, it is the capability the next brick consumes.
+
+The spawn budget rides in the child's **own address space** (a byte the kernel
+stamps at creation, at `P1_VAL_VA+2`), not in the kernel. So the depth assertion
+doubles as evidence the kernel wrote *per-child content* into a frame it had just
+built — the same act, read back by ring 3.
+
+**Design.** `pspawn()` is syscall **57** (Linux's `fork` number, matching this
+file's convention of borrowing Linux numbers — `getpid` is 39). It returns the
+**child's pid** to the calling process in `rax`, or **−1** when the table is full.
+It is not `fork`: nothing of the caller is copied. It builds a process from the
+**pristine image**, which is what P6's restart-after-fault will need (a faulted
+address space is corrupt, so restart cannot resume — it must rebuild).
+
+Kernel side, all of it at runtime and all of it through the **high alias**
+(`HIGH_BASE + phys`, reachable under every CR3 through the shared `PML4[511]`),
+because under a process's CR3 the low identity map no longer exists:
+
+1. scan the PCB array for a `P1_ST_FREE` slot; `−1` if none;
+2. pid from a **monotonic counter**, not the slot index — so a reused slot gets a
+   *new* pid, which is precisely what P6's "restart under a NEW pid" requires;
+3. build `PML4[0]=pdpt|7`, `pdpt[0]=pd|7`, `pd[128]=frame|0x87` (`U=1`), and
+   `PML4[511]=pdpt_high|3` (**supervisor** — ring 3 cannot reach the kernel);
+4. copy the pristine payload into the child's frame and stamp its value tag
+   (`'A'+pid-1`, `'1'+pid-1`) and its spawn budget;
+5. fill the PCB — pid, cr3, `state=RUNNABLE`, entry, stack, `fault=-1`;
+6. return the pid. The scheduler enters the child when the caller exits.
+
+**Green — seven assertions:**
+
+1. `P1 pid=1 val=A1`, `pid=2 val=B2`, `pid=3 val=C3` — the boot-built table is
+   untouched. P3 adds a path; it does not replace P1.
+2. `PSPAWN pid=1 -> child 4` — **the pid reached RING 3.** The line is printed by
+   the *process*, from the syscall's return value, not by the kernel. A
+   kernel-printed line would prove creation but not that LA can drive it, and
+   "LA-driven" is the whole title of the brick.
+3. `P1 pid=4 val=D4` — the runtime-created process **ran**, and read **its own**
+   tag through the same `P1_VAL_VA` every other process uses. `D4` (not `A1`) is
+   the evidence that a *new address space* was built, not a second name for the
+   parent's.
+4. ★ `PSPAWN pid=4 -> child 5` **and** `P1 pid=5 val=E5` — **a spawned process
+   spawned.** The discriminator above.
+5. Ordering: each child's `P1 pid=` line appears **after** the `PSPAWN` line that
+   created it. Presence alone would not prove creation preceded execution.
+6. `P1 pcb pid=04 state=03 fault=ff` and `pid=05` — the children are **in the
+   table**, recorded, dead-by-clean-exit. P2's lesson at the creation station:
+   announcing a child is not recording one, and P4 (`pwait`) reads this field.
+7. `P1 table drained` + exit **33** — five processes drained, kernel alive.
+
+**Red controls — five, each catching a different lie:**
+
+| # | Control | What passes without it |
+|---|---|---|
+| **R1** | **Baseline, and its shape is NAMED.** Build with P2 only, no P3: the unknown syscall falls through `syscall_entry`'s `xor rax,rax`, so the payload prints `child 0` and no fourth process exists. Assert `P1 pid=4` **absent** — and note the exit code is still **33**, so a gate keyed on "non-green exit" would pass this for the wrong reason. | A baseline accepting any non-green. Here the baseline is green *by exit code* and wrong *by content*, which is the sharpest possible argument for asserting content. |
+| **R2** | **The address space is really built at runtime.** `--sharedcr3`: give the child the **parent's** CR3 instead of a freshly-built PML4. The child then reads `val=A1`, not `D4`. | Assertion 3 is vacuous if nothing could ever have collapsed. This is P1's `--shared` argument moved to the runtime-built table. |
+| **R3** ★ | **Announcing is not creating.** `--phantom`: allocate the pid and return it, but never fill the PCB. `PSPAWN pid=1 -> child 4` still prints — and no fourth process ever runs. | A syscall that *reports* a child it did not create satisfies assertion 2 perfectly. This is P2's "announcing is not recording" one station earlier, and it is the lie most likely to be written by accident. |
+| **R4** ★ | **Depth has power.** `--nodepth`: `pspawn` refuses a caller whose pid is above the boot-built range. Then `PSPAWN pid=4` and `P1 pid=5` never appear. | Assertion 4 is the discriminator; if nothing could suppress it, it measures nothing. Note this control is the *only* one that separates P3 from `P1_NPROC equ 4`. |
+| **R5** | **Bounded, and loud when exhausted.** `--flood`: never decrement the budget, so every process spawns. The table must fill, `pspawn` must return −1, the payload must print `TABLE FULL`, and the machine must still drain and **exit 33**. | Unbounded creation that wedges, or silently ignores exhaustion. This is `secd: heap exhausted` at the process table: a resource limit that is *reported* rather than discovered as a hang. |
+
+**Both guards from §5.0.3 apply, and are wired in:** every control md5s the ELF and
+**fails if the perturbation produced a byte-identical image** (ABSORBED vs
+UNDETECTED), and every control asserts the **specific named shape** rather than
+"not green". R1 makes the second guard unavoidable rather than optional — its exit
+code is 33, the same as the green run, so "not green" is not even available as a
+verdict.
+
+**Honest scope, stated before the build:** capacity is fixed at `P1_MAXPROC` (8)
+and a child's frame and page tables are **slot-indexed** (`P1_PBASE + slot*2 MiB`,
+`pml4_p + slot*4096`) rather than drawn from a dynamic physical allocator. That is
+a real limit, not a hidden one: it is what makes R5's exhaustion path reachable
+and assertable. Wiring `pspawn` to a real PMM is a later step and does not change
+the syscall's contract. Nothing here reclaims a dead process's frame either —
+`pwait` (P4) is where a slot becomes reusable.
+
+---
+
 ### 5.1 The task-level gate table (D-INIT.1, built)
 
 Erik's standard is that a green gate proves nothing unless the same gate is
