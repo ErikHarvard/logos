@@ -11,3 +11,4 @@ glyph POW2 = la h. bshl(1)(h)
 glyph IF = la c. la t. la f. c(t)(f)("!")
 # SEQ : :: a -> b -> b
 glyph SEQ = la a. la b. b
+export IDX_RESERVE IDX_READ IDX_CAPACITY POW2 IF SEQ 

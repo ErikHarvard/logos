@@ -407,10 +407,11 @@ say "the signature layer — WOTS+ one-time, XMSS many-time, and the durable ind
 #  correction: `if [ -f gate ]; then ... else echo SKIP; fi` kept the build green
 #  when the file was deleted. There is no legitimate build in which a gate is
 #  optional; absence is a broken checkout.
-for g in gate_xmssidx.sh gate_wotsp.sh gate_xmss.sh gate_xmss_signer.sh; do
+for g in gate_xmssidx.sh gate_xmssidx_core.sh gate_wotsp.sh gate_xmss.sh gate_xmss_signer.sh; do
     [ -f "$g" ] || { echo "FAIL  signature layer: $g is absent — a gate file missing means a broken checkout, not a configuration"; exit 1; }
 done
 bash gate_xmssidx.sh || exit 1
+bash gate_xmssidx_core.sh || exit 1
 bash gate_wotsp.sh || exit 1
 XMSS_VM_ONLY=1 bash gate_xmss.sh || exit 1
 SIGNER_VM_ONLY=1 bash gate_xmss_signer.sh || exit 1
