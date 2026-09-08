@@ -471,7 +471,19 @@ every item below cites the ruling rather than inferring one.
 
 ## TIER 1 — ROOT CAUSES (fixing these prevents whole defect classes)
 
-- `[ ]` **The spec pipeline emits no `export`.** Every generated module —
+- `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
+  (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
+  item's own stated gate now hold, checked by running them rather than by reading
+  the commit: all ten generated modules (`canon`, `aatc`, `metalogic`, `swc`,
+  `glyphdag`, `pragmatics`, `deixis`, `psc`, `topoembed`, `primitives`) carry an
+  `export` line, and an importer resolves the name — `import("canon.la")` then
+  `CANON(SYN(PRIM("BEING"))(PRIM("FORM")))` prints `⊗(BEING,FORM)`, where this
+  item recorded `unbound variable`. The drift half is `gate_srcdrift.py` (290
+  SRC/live pairs across 14 spec modules, red path exercised). ★ It stayed `[ ]`
+  for twelve days after it was fixed. An item marked open that the build says is
+  closed misdirects work exactly as an item marked closed that is open — the
+  queue was derived from the paragraph, not resolved against the artifact.
+  Was: Every generated module —
   `canon`, `aatc`, `metalogic`, `swc`, `glyphdag`, `pragmatics`, `deixis`, `psc`,
   `topoembed` — is **unreachable by `import`**. Verified: `import("canon.la")`
   then `CANON(...)` gives `unbound variable`. This is why ⊗ was sorted in FIVE
@@ -726,7 +738,16 @@ registers. `trimono.la` now gates all three. What remains:
 
 ## TIER 5 — BEYOND THE LANGUAGE (named, not chased)
 
-- `[ ]` **A signature scheme.** No public-key primitive exists. **The single
+- `[✓]` **A signature scheme.** — **LANDED in b6a361f (2026-08-28); confirmed
+  by the Codex audit 2026-09-08.** `wotsp.la` (WOTS+ one-time), `xmss.la` (XMSS
+  many-time), `xmss_signer.la` and `xmssidx.la` (the durable leaf-index register)
+  exist, and FOUR gates execute in `build.sh` at :413-:417 — `gate_xmssidx.sh`,
+  `gate_xmssidx_core.sh`, `gate_wotsp.sh`, `XMSS_VM_ONLY=1 gate_xmss.sh`,
+  `SIGNER_VM_ONLY=1 gate_xmss_signer.sh`. Hash-based, so it needs no new
+  number-theoretic assumption. ★ This item is cited as "the single unlock for the
+  whole record/law layer" — everything in the Logocracy layer was recorded as
+  waiting on a primitive that had been built and gated eleven days earlier.
+  Was: No public-key primitive exists. **The single
   unlock for the whole record/law layer**: signed updates, identity, contracts,
   non-repudiable records, the Eternal Library. Everything in the Logocracy layer
   waits on this one primitive.
@@ -739,6 +760,80 @@ registers. `trimono.la` now gates all three. What remains:
   asserted. Actual animal comprehension stays out of scope, stated.
 - `[ ]` **The language deepens with its agents** — the loop optimises COST, never
   DEPTH or expressivity. Needs a depth-directed `selfopt` mode.
+
+### CODEX AUDIT 2026-09-08 — the Thirteen-Layer Sovereign Stack
+
+`CODEX_AUTOPOIETICUS.tex` defines **The Thirteen-Layer Sovereign Stack**
+(`def:sovereign-stack`, :18209-:18245) — layers 0-12, firmware to pixel, each
+with a Nigredo (scaffolded) and a Rubedo (sovereign) column. Eight layers have
+an implementation in this repo. **Five have none.** Each was resolved against
+the build, never from the Codex's own sentence: a name-pattern search, then a
+FUNCTIONAL search for the capability under any name, then inspection of what
+matched. Every match found by the functional search was a substring artifact and
+is named below, because "my grep found nothing" is not evidence of absence.
+
+- `[ ]` **L6 `LogosAudio` — no sovereign audio output path.** Codex :18231. The
+  repo SYNTHESISES audio (`phonym.la` → 16-bit PCM in a RIFF/WAVE container) but
+  cannot PLAY it: `secd.asm` has **zero** references to ALSA, `/dev/snd` or PCM,
+  and `bringup_phonym.sh:42-43` shells out to `aplay`/`paplay`. So the audio
+  register ends at a file an external program must open. Gate: a `.la` program
+  opens a PCM device and emits a tone with no external player in the loop, host
+  and VM. Red path: remove the builtin and assert the gate fails loudly rather
+  than silently writing a `.wav` again — the failure mode to design against is a
+  gate that passes because a file was produced. *Tier 5.*
+- `[ ]` **L9 `LogosKit` — no UI toolkit.** Codex :18239. `theourgia_text.la`
+  rasterises glyphs onto a surface and Stage 9 moves a text window, but there is
+  no widget, layout or hit-testing layer. The only `button` in the tree is the
+  word in an evdev comment (`theourgia_input.la:64`, "a key/button") — a
+  substring, not a widget. Gate: compose a two-widget tree and assert a
+  synthetic click at the button's coordinates routes to that widget and not the
+  label. Red path: move the widget one cell and assert the old coordinates STOP
+  hitting — a hit-test that always hits passes the positive arm forever.
+  *Tier 5.*
+- `[ ]` **L10 `LogosSession` — no session manager.** Codex :18241. No login, no
+  screen lock, no session state. `theourgia_session.la` is a compositor
+  input→scene reducer, not a session manager, and every `authenticat*` hit in
+  the tree is CRYPTOGRAPHIC message authentication (`xmss.la`, `aead.la`), not a
+  user session. Gate: lock → input refused → unlock under a credential → input
+  restored. Red path: assert a WRONG credential leaves it locked; without that
+  arm an unlock that always succeeds is green. *Tier 5.*
+- `[ ]` **L11 `LogosPkg` — no package system.** Codex :18243. Zero matches for
+  package/install/pkg across every `.la` in the tree. The Codex requires
+  autoteloscriptic packages that verify themselves (`b_τ ≡ f_τ`), which is the
+  same self-verification `specpipe.la`'s DEPLOY already performs for a module —
+  so the primitive exists and the packaging layer does not. Gate: install a
+  package, assert its self-check runs, assert a TAMPERED package is refused.
+  Red path: flip one byte of a package and assert refusal — an installer that
+  accepts everything passes the install arm. *Tier 5.*
+- `[ ]` **L12 `LogosServices` — none of the three.** Codex :18245 names
+  LogosTime (NTP over Tor), LogosDNS (encrypted resolution over AegisNet) and
+  LogosPower. None exists; the `dns`/`resolv` hits in `theourgia.la`,
+  `ipc_demo.la` and `asmelf.la` are the letters of "resolve"/"resolved". Gate:
+  each service answers one query deterministically offline. Red path: assert a
+  malformed response is rejected loudly rather than cached. *Tier 5.*
+
+**Layer 0 is partial, not absent** — `kernel/boot*.asm` exist and the `k`-series
+gates boot images under QEMU, but `gate_bootelf.sh` is committed and **never
+executed by `build.sh`**. That one is deliberate and documented (`build.sh:7114`,
+a ~26-minute native-VM cycle invoked separately), so it is recorded here as a
+known-unwired gate rather than as a defect.
+
+★ **Gate-coverage census, taken while resolving the above.** 57 gate scripts are
+tracked; **53 are executed by `build.sh`**. The four that are not:
+`gate_asmelf.sh`, `gate_asmelf_extern.sh`, `gate_bootelf.sh` (deliberate, above)
+and **`gate_rss.sh`** — the `rt_gc` acceptance test, described at `build.sh:7115`
+as "a real candidate, still unwired" and confirmed absent from `build.sh` by
+`FREEZE_III_FINDINGS.md:84`. A gate that is never executed is Door **iii**.
+
+★ **The census had to be taken twice, and the first answer was wrong in both
+directions.** Grepping `build.sh` for gate names counts COMMENT mentions as
+coverage — it reported `gate_boot.sh` as invoked when the only occurrence is
+prose at `build.sh:2253` ("not in this audit"), and a stricter regex then MISSED
+the whole `k`/`hal` series because those are invoked path-prefixed
+(`bash kernel/gate_k1.sh`). Reading a runner for gate names measures neither
+which gates exist nor which ones run. *Tier 5, method note.*
+
+---
 
 ---
 
