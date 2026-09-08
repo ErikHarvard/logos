@@ -39,6 +39,21 @@
 
 import("eval.la")
 
+# ── THE DEBUGGER'S PUBLIC SURFACE ────────────────────────────────────
+#   Slice 13 makes this file a MODULE as well as a program. It still runs
+#   standalone — MAIN is untouched — but another file can now import the
+#   debugger instead of copying it, which is what debug_meta.la needs and
+#   what a debugger ought to be. Everything not listed stays private and
+#   is alpha-renamed away in an importer, so the internals (ST_VISIT, the
+#   recorders, the record accessors' shape) remain free to change.
+export DEBUG_RUN DEBUG_RUN_BRK DEBUG_RUN_BUD AGREES AGREES_BRK AGREES_BUD
+export BRK_NONE BRK_VAR BRK_DEPTH BRK_CALLER BRK_WHEN BRK_WATCH
+export STEP_INTO STEP_OVER STEP_OUT CMD_RUNTO
+export FIND_STOP FIND_STOP_BACK SESSION RUN_SESSION SESSION_ASK RUN_ASK
+export SESSION_WATCH RUN_WATCH TAPE TAPE_FIND TAPE_FIND_BACK INSPECT
+export STOP_I STOP_N STOP_S STOP_E STOP_A STOP_K STOP_D
+export BUDGET_ALL BUDGET_NONE
+
 # ── the node kind, read off the AST's own dispatch ───────────────────
 #   The AST is Scott-encoded: applying it to four handlers IS the case
 #   analysis. VAR and STR carry one payload, LAM and APP carry two, which
@@ -1012,4 +1027,34 @@ glyph MAIN_BUDGET = SEQ(SEQ(SEQ(SEQ(SEQ(
     print("--- budget: end ---")))(
     print(""))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE))(MAIN_BUDGET)
+# ── THE DEBUGGER WATCHING AN EVALUATOR — slice 13 ────────────────────
+#   This file's header claims it is "the evaluator watching itself", and
+#   CLAUDE.md's Debugging Principle asks for Meta-Debug(Meta-Debug) =
+#   Debug. Until slice 12 that could not even be attempted: the trace was
+#   unbounded, so pointing the debugger at anything evaluator-sized
+#   produced output nobody could read.
+#
+#   ★ AND THE LITERAL VERSION IS MEASURED, NOT ASSUMED, TO BE TOO
+#   EXPENSIVE TO GATE. Tracing eval.la's own RUN over a two-glyph program
+#   runs past 150 SECONDS on the host before the host==VM half doubles it.
+#   The budget bounds what is EMITTED, not what is EXECUTED, so the whole
+#   meta-evaluation still happens. That measurement is why the literal
+#   self-application lives in debug_meta.la, run by hand, exactly as this
+#   project already treats its expensive capstones (the theourgia *_live
+#   renderers, sigil_live) — and why what is GATED is the affordable core.
+#
+#   SRC_MINI is an evaluator in its own right, not a stand-in for one: a
+#   Scott-encoded expression language (LIT / ADD), a fixed point built
+#   with its OWN Z, and a recursive evaluator that dispatches on the term.
+#   Tracing it shows an evaluator being constructed and then running —
+#   the knot tied (clo:f -> clo:self -> clo:t) and a term selecting its
+#   handler (clo:l) — which is the thing being claimed, one honest level
+#   below the literal self-application.
+glyph SRC_MINI = "glyph MZ = la f. (la x. f(la v. x(x)(v)))(la x. f(la v. x(x)(v)))\nglyph LIT = la n. la l. la a. l(n)\nglyph ADD = la x. la y. la l. la a. a(x)(y)\nglyph EV = MZ(la self. la t. t(la n. n)(la x. la y. add(self(x))(self(y))))\nglyph MAIN = int_to_str(EV(ADD(LIT(2))(ADD(LIT(3))(LIT(4)))))"
+
+glyph MAIN_META = SEQ(SEQ(
+    print("--- meta: the debugger tracing an evaluator ---"))(
+    print(AGREES_BUD(24)(SRC_MINI))))(
+    print("--- meta: end ---"))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE))(MAIN_BUDGET))(MAIN_META)

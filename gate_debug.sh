@@ -71,7 +71,7 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
-EXPECT_AGREE=22
+EXPECT_AGREE=23
 EXPECT_BREAK=11
 
 command -v timeout >/dev/null 2>&1 || { echo "SKIP  debug: timeout(1) absent"; exit 0; }
@@ -659,29 +659,79 @@ else
     echo "PASS  debug 13: the trace budget bounds observation without changing it — 4 nodes shown then truncation announced exactly once, $bl_enter shown unbounded with no marker, and both still AGREE"
 fi
 
-# ── 14. host == VM ─────────────────────────────────────────────────────────
+# ── 14. THE DEBUGGER TRACING AN EVALUATOR ──────────────────────────────────
+#   This file's header claims it is "the evaluator watching itself", and
+#   CLAUDE.md asks for Meta-Debug(Meta-Debug) = Debug. Until slice 12 that could
+#   not be attempted at all: the trace was unbounded.
+#
+#   ★ WHAT IS GATED IS ONE HONEST LEVEL BELOW THE LITERAL CLAIM, and the reason
+#   is measured rather than assumed. Tracing eval.la's own RUN runs past 150
+#   SECONDS on the host before host==VM doubles it, because the budget bounds
+#   what is EMITTED, not what is EXECUTED — a budget cannot make meta-evaluation
+#   cheap. The literal self-application therefore lives in debug_meta.la, run by
+#   hand, as this project already treats theourgia_*_live and sigil_live.
+#
+#   ★ AND THE ASSERTION IS THE INTERPRETING, NOT THE ANSWER. "AGREE str:9" is
+#   equally true of tracing any program that computes 9. What makes SRC_MINI an
+#   evaluator is visible in the trace: a fixed point being tied (clo:self) and a
+#   Scott-encoded term selecting its own handler (clo:l). Asserting only the
+#   result would pass against a test that had quietly stopped being meta.
+m_agree=$(csec "meta: the debugger tracing" | grep -c '^AGREE str:9$')
+m_knot=$(csec "meta: the debugger tracing" | grep -c '<- LAM = clo:self$')
+m_disp=$(csec "meta: the debugger tracing" | grep -c '<- APP = clo:l$')
+m_trunc=$(csec "meta: the debugger tracing" | grep -c '^\.\.\. trace truncated after 24 nodes$')
+if [ "$m_agree" -ne 1 ]; then
+    echo "FAIL  debug 14: the traced evaluator did not agree (AGREE str:9 count $m_agree) — tracing changed what the interpreter computed"; ok=0
+elif [ "$m_knot" -eq 0 ]; then
+    echo "FAIL  debug 14: the trace shows no fixed point being built (no 'clo:self') — the traced program is not constructing a recursive evaluator, so this check is no longer meta"; ok=0
+elif [ "$m_disp" -eq 0 ]; then
+    echo "FAIL  debug 14: the trace shows no term selecting its handler (no 'clo:l') — the traced program is not DISPATCHING on an encoded term, which is what makes it an interpreter rather than an expression"; ok=0
+elif [ "$m_trunc" -ne 1 ]; then
+    echo "FAIL  debug 14: the meta trace announced truncation $m_trunc times, expected 1 — an evaluator-sized trace must stay bounded and say so"; ok=0
+#   ★ MODULE LIVENESS, because debug_meta.la is run BY HAND and nothing else
+#   would notice it rotting. It depends on debug_eval.la's export list, and a
+#   name quietly dropped from that list would leave the capstone broken until
+#   someone next ran it — which is precisely how 25 committed kernel gates came
+#   to be dead on this branch. A trivial importer costs ~1s and closes it.
+elif [ ! -f debug_meta.la ]; then
+    echo "FAIL  debug 14: debug_meta.la is missing — the literal self-application capstone this check is the affordable half OF"; ok=0
+else
+    MOD_LA=./debug_modcheck_gen.la
+    printf 'import("debug_eval.la")\nglyph MAIN = print(AGREES_BUD(3)("glyph MAIN = concat(\\"o\\")(\\"k\\")"))\n' > "$MOD_LA"
+    MOUT=$(timeout 120 ./tiny_host "$MOD_LA" 2>&1); MRC=$?
+    rm -f "$MOD_LA"
+    if [ "$MRC" -ne 0 ] || ! printf '%s\n' "$MOUT" | grep -q '^AGREE '; then
+        echo "FAIL  debug 14: an importer could not use the debugger through its export list (rc $MRC): $(printf '%s' "$MOUT" | tail -1)"; ok=0
+    elif ! grep -q '^import("debug_eval.la")$' debug_meta.la; then
+        echo "FAIL  debug 14: debug_meta.la no longer imports the debugger — a capstone that copies the machinery tests its own copy"; ok=0
+    else
+    echo "PASS  debug 14: the debugger traces an evaluator — a fixed point tied ($m_knot clo:self), terms dispatching to their handlers ($m_disp clo:l), bounded to 24 nodes with truncation announced, the interpreter still computes 9, and an importer can reach the API that debug_meta.la's manual capstone depends on"
+    fi
+fi
+
+# ── 15. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 14: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 15: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 14: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 15: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 14: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 15: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 14: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 15: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 14: host and VM disagree"
+                echo "FAIL  debug 15: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that
