@@ -873,6 +873,46 @@ substitution ran in a subshell, so the assignment died with the subshell. **The 
 is WHERE THE ASSIGNMENT HAPPENS, not where the substitution is.** A sweep that flags
 every `X=$(…)` produces hundreds of false positives and finds nothing.
 
+#### Two guards on the CONTROLS themselves (2026-09-08, both paid for)
+
+The constraints above are about a gate's plumbing. These two are about whether a
+red control is telling you anything, and both were bought with real false results
+while building P2.
+
+**1. Prove the perturbation changed the artifact, before concluding anything from
+the gate's response.** An *absorbed* break — one the toolchain rounds away, or a
+later stage swallows — and a working assertion are **indistinguishable from the
+gate's response alone**. Concluding "vacuous gate" from an absorbed break is a
+false finding against a working check. `gate_p2.sh --r3` therefore md5s the ELF
+and **fails if `--mask` produced a byte-identical image**, before it looks at the
+transcript at all (good `3eb4865facdf` → masked `7aca5a4b0367`).
+
+**2. ★ A control that reports the exact failure it was built to find has told you
+nothing until you have confirmed it can also report the ABSENCE of it.** P2's R3
+marker string was placed between `db 10` and `p1_line_len equ $ - p1_line`, so the
+*ordinary* val-line write ran 33 bytes long and emitted the R3 marker as trailing
+garbage. The transcript showed `RESUMED` after processes that **never faulted** —
+reading exactly like the masking failure R3 exists to catch, from a string-length
+bug with nothing to do with the fault handler.
+
+These two are siblings, one station apart: in the first **the instrument asked
+nothing**; in the second **the instrument answered on its own behalf**. Both are
+*the thing under test was never the thing you thought*. The second is the more
+dangerous, and the asymmetry is worth stating: an absorbed perturbation produces a
+false **green**, which fails toward not-knowing; this produces a false **red that
+looks like the specific defect you predicted** — the most convincing possible
+evidence for a wrong conclusion. What saved it was reading the green transcript
+first; asserting R3 before that would have filed "the handler resumes the process"
+against working code.
+
+**3. A control that cannot BUILD is a control that is not running.** P2's R1'
+control failed to assemble (the probe's constants sat inside `%ifdef P2_ATTRIB`
+while `--nofix` builds the probe *without* the handler). It was caught only
+because the gate reports a build failure as **FAIL** rather than SKIP. This is
+Track E's `gate_srcdrift` finding from the other side — E found a gate printing
+SKIP and continuing green when its own script was deleted. **A gate must never
+skip its way past a missing or unbuildable control.**
+
 #### How `build.sh` actually reads a gate — measured, because the design depends on it
 
 Checked in this tree rather than taken on report (two line numbers quoted to me for
