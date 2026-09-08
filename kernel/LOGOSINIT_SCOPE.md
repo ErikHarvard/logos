@@ -795,16 +795,40 @@ every `X=$(…)` produces hundreds of false positives and finds nothing.
 Checked in this tree rather than taken on report (two line numbers quoted to me for
 this were both wrong):
 
+**★ Cite `build.sh` line numbers BRANCH-QUALIFIED.** `build.sh` has diverged far
+enough across branches that a bare `build.sh:NNNN` is meaningless: `track-d`'s 812
+is `kernel-k1`'s 939, and `track-d`'s 2682 is `kernel-k1`'s 2809 — a drift of ~127
+lines through the early file. Two tracks checking the same claim reported different
+numbers and both were right about their own branch. Write `track-d:build.sh:812`.
+
 - **`build.sh` gates on EXIT STATUS at the P1 call sites** — `bash kernel/gate_p1.sh
-  || exit 1` (7254) and `… --red || exit 1` (7258). No capture, no redirect.
+  || exit 1` (`track-d:build.sh:7254`) and `… --red || exit 1` (`:7258`). No
+  capture, no redirect.
   Executed both shapes against a stub that prints a FAIL and exits 1: the `|| exit 1`
   form **prints the verdict and exits 1**; the capture form `OUT="$(gate)"` under
   `set -e` prints **nothing** and also exits 1. Both exit 1, so *the exit code alone
   cannot distinguish them* — which is why a captured gate goes red **mutely**.
-- **Only three sites in `build.sh` grep a gate's text, and all three match `^PASS`**
-  (812 `gate_srcdrift`, 2252 `asm.la`, 2682 `fuzz_grammar`). So a lost **FAIL** line
-  costs a log line, not a red; a lost **PASS** line on those three turns a passing
-  gate into a failing build. They are **green-losing** channels, not red-losing.
+- **TWO sites make a printed verdict a decision input, and both match `^PASS`**:
+  `track-d:build.sh:811-812` (`gate_srcdrift.py` — `SDRC -eq 0` **and** `grep -q
+  "^PASS  gate_srcdrift"`) and `:2681-2682` (`fuzz_grammar.py`, same shape). Every
+  other gate is read by **exit status alone** — 60-odd `|| exit 1` call sites, plus
+  `if ./gate_abspath.sh; then` (`:45`) and `if ./gate_asmelf.sh >…; then` (`:2251`,
+  `:2273`).
+
+  **★ Corrected — I first counted THREE and `asm.la` was a mis-classification.**
+  At `:2251` the decision is `if ./gate_asmelf.sh >.asmgate/elf64.out 2>&1; then`
+  — **exit status**. The `grep -c '^PASS'` on the next line only fills a *fixture
+  count* into the PASS message; had it returned 0 the line would read "0 fixtures"
+  and the build would still be green. A grep on a gate's output is only a channel
+  if it **decides**; a grep that formats a message is display. Track C reported two
+  and was right; my third was my error, not a branch difference — so the "the set
+  of grep-on-verdict sites differs per branch" reading does **not** follow from it.
+  The *line-offset* divergence above is real and stands.
+
+  So a lost **FAIL** line costs a log line, not a red; a lost **PASS** line on those
+  two turns a passing gate into a failing build. They are **green-losing** channels,
+  not red-losing — which inverts the severity: a gate that cannot print its FAIL is
+  a logging defect, a gate that stops printing its PASS is a false red.
 - Consequence for `gate_p2.sh`: **the exit status is the load-bearing channel**, and
   the verdict text is for the human reading the log — *unless* someone later wires a
   `^PASS` grep to it, at which point the PASS line becomes load-bearing too.
