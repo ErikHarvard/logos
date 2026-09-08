@@ -770,13 +770,61 @@ vacuous. What is new is **R1'**, which was a free red in §5.0 and is not one.
 can even be attempted — a gate that cannot deliver an interrupt cannot observe an
 attribution. P2.0 first, green; then P2, green; then the reds above.
 
-**Lesson carried forward from P1, applied to `gate_p2.sh` before it is written:**
-no `set -e` in the gate (it kills the verdict block on the failing path, so the
-gate cannot print its own FAIL), no EXIT trap whose first command can fail, and
-never `RESULT=$(fn)` when `fn` assigns a status the caller needs — command
-substitution runs it in a subshell and the status dies there. All three are
-exit-status handling, none is findable by reading the gate; P1's gate had the
-third and could never have gone green.
+#### Constraints on `gate_p2.sh`, before it is written
+
+Carried from P1's own defect and from the cross-track exit-status sweep. All are
+exit-status handling; none is findable by reading a gate.
+
+1. **No `set -e` in the gate.** It kills the verdict block on the failing path, so
+   the gate cannot print its own FAIL. (`gate_p1.sh` uses `set -uo pipefail`.)
+2. **No EXIT trap whose first command can fail** — under `set -e` the trap aborts
+   before its cleanup, and a PASS path can exit non-zero.
+3. **Never assign the status the caller needs INSIDE a function you then call in
+   `$( )`.** This is the defect P1's gate had.
+
+**★ 3 is narrower than it looks, and stating it loosely is itself a defect.**
+`SD="$(cmd)"; SDRC=$?` is **correct** — `$?` there is the *assignment's* own status
+and it propagates fine; `build.sh:811` uses exactly that form. What broke P1's gate
+was that `RC=$?` was assigned **inside the function body**, which command
+substitution ran in a subshell, so the assignment died with the subshell. **The tell
+is WHERE THE ASSIGNMENT HAPPENS, not where the substitution is.** A sweep that flags
+every `X=$(…)` produces hundreds of false positives and finds nothing.
+
+#### How `build.sh` actually reads a gate — measured, because the design depends on it
+
+Checked in this tree rather than taken on report (two line numbers quoted to me for
+this were both wrong):
+
+- **`build.sh` gates on EXIT STATUS at the P1 call sites** — `bash kernel/gate_p1.sh
+  || exit 1` (7254) and `… --red || exit 1` (7258). No capture, no redirect.
+  Executed both shapes against a stub that prints a FAIL and exits 1: the `|| exit 1`
+  form **prints the verdict and exits 1**; the capture form `OUT="$(gate)"` under
+  `set -e` prints **nothing** and also exits 1. Both exit 1, so *the exit code alone
+  cannot distinguish them* — which is why a captured gate goes red **mutely**.
+- **Only three sites in `build.sh` grep a gate's text, and all three match `^PASS`**
+  (812 `gate_srcdrift`, 2252 `asm.la`, 2682 `fuzz_grammar`). So a lost **FAIL** line
+  costs a log line, not a red; a lost **PASS** line on those three turns a passing
+  gate into a failing build. They are **green-losing** channels, not red-losing.
+- Consequence for `gate_p2.sh`: **the exit status is the load-bearing channel**, and
+  the verdict text is for the human reading the log — *unless* someone later wires a
+  `^PASS` grep to it, at which point the PASS line becomes load-bearing too.
+
+#### P1's four reds: confirmed gate-authored, from the artifacts
+
+The question is not "did it go red" but **"what process was running when the FAIL
+line printed."** Confirmed two ways, neither from memory:
+
+- The P1 kernel's **entire printable vocabulary** is `"P1 table drained: every
+  process exited, kernel alive"`, `"P1 pid="`, `"0"`, `" val="`, `"??"` and a
+  newline. It cannot emit shell prose. The one `FAIL` in the ELF is the symbol name
+  `IDT_FAIL`, an absolute in the symbol table, not printable output.
+- The three verdict strings are **unique to `kernel/gate_p1.sh` repo-wide**.
+
+So the FAIL lines could only have come from the gate, and each of the four was
+produced by invoking `./kernel/gate_p1.sh` directly. (QEMU *was* also run by hand in
+that session — to diagnose the subshell bug and to capture the `--shared` transcript
+verbatim — but those runs are illustration, not the verdicts, and the distinction is
+exactly the one that matters here.)
 
 ---
 
