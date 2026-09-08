@@ -1154,15 +1154,40 @@ going green having tested nothing.
 
 ⚠ **CORRECTED same day — the kernel justification I first gave was wrong, on two
 grounds I measured after track D pushed back.** (1) **`link.la` cannot reach the
-kernel at all**: zero of `kernel/`'s 76 shell scripts reference it — the string
-`link.la` does not occur anywhere under `kernel/` — every kernel build links with
+kernel at all**: the string `link.la` does not occur anywhere under `kernel/`
+(0 of 76 `kernel/*.sh` **in this tree**); every kernel build links with
 `ld -T kernel/kernel.ld`. (2) **The kernel is ALREADY higher-half**, and has been
-since HH1: `HIGH_BASE equ 0xFFFFFFFF80000000` at `kernel/boot.asm:141`, mapped
+since HH1: `HIGH_BASE equ 0xFFFFFFFF80000000` at `kernel/boot.asm:141` **in this
+tree**, mapped
 `PML4[511] -> pdpt_high` at `boot.asm:238-244`. But that is a **runtime
 page-table alias**, not a link-time base — `kernel.ld` still links at `0x100000`
 and the ELF loads low, so **no >4 GB address is ever presented to a linker**. I
 inferred a direction from a plausible trajectory instead of reading the tree; the
 guard is right, the motivation I published for it was not.
+
+**⚠ EVERY NUMBER ABOVE IS TREE-LOCAL — AND ONE IS ALSO COMMIT-LOCAL.** The relay
+carrying D's correction quoted 77 scripts and `boot.asm:332`; I measured 76 and
+`:141` and called the relay's figures wrong. **They were not.** Different glob,
+different tree: 76 is `kernel/*.sh` **here**, 77 was `kernel/build_*.sh` **on
+track-d** (79 by re-measure — D has been committing), and `kernel/boot.asm` is
+1555 lines here against 2192 there, which is why `HIGH_BASE` sits at `:141` in
+this tree and far lower in D's. Neither report was wrong about a fact; they were
+about different trees, and the tree got stripped off in transit. The substantive
+claim is unanimous and holds in every tree: `link.la` occurs nowhere under
+`kernel/`.
+
+★ **The collision is the part to keep.** **76** is this tree's `kernel/*.sh`
+count *and* the count of D's kernel scripts containing `ld -T`. Two unrelated
+quantities, two trees, one number. Had both reports said 76, the agreement would
+have read as corroboration and ended the check. **An agreeing count is not a
+reconciled count unless the tree AND the glob are pinned.**
+
+★★ **A line number needs a third pin — the commit.** Checking `:332` against
+track-d's *committed* `boot.asm` (`git show track-d:kernel/boot.asm` — reading a
+blob, not reaching into another worktree) puts `HIGH_BASE` at **278**, not 332;
+the likely reading is that `:332` came from D's uncommitted working copy. So a
+count crossing a track boundary is malformed without **tree + glob**, and a line
+number without **tree + commit**.
 
 ⇒ Same shape as slice 15, one layer down. There the evidence that a gate
 discriminates was mistaken for evidence it runs. Here a **comment asserting a
