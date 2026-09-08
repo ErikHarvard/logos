@@ -79,16 +79,22 @@ ANY_SKIP  = re.compile(r'echo\s+"SKIP|print\(f?"SKIP')
 BAILS     = re.compile(r'\b(?:exit|return)\s+0\b')
 
 
-def is_checkout_path(path, root):
-    """A CHECKOUT file lives in the repo; /dev/dri/card0 does not.
+def is_checkout_path(path, root=None):
+    """A CHECKOUT file is named RELATIVE to the tree; /dev/dri/card0 is not.
 
     ★ An earlier draft classified any `[ -e X ]` as CHECKOUT and flagged
     build.sh:3918 `[ -e /dev/dri/card0 ]` as a defect. A device node is the
-    ENVIRONMENT -- absent hardware, like absent nasm. A triage tool that cries
-    wolf gets ignored, so the discriminator is where the path LIVES."""
-    if path.startswith('/'):
-        return False
-    return os.path.exists(os.path.join(root, path))
+    ENVIRONMENT -- absent hardware, like absent nasm.
+
+    ★★ BUT THE FIX WAS WORSE THAN THE BUG, AND IT INVERTED ON THE DEFECT.
+    That draft discriminated by `os.path.exists`, so a repo-relative GATE FILE
+    that was ABSENT classified as ENVIRONMENT -- i.e. as "not a defect" --
+    precisely when the defect had already happened. The tool went quiet on the
+    broken checkout it exists to report. Existence is the CONDITION under audit
+    and can never be the CLASSIFIER; the classifier is the shape of the path.
+    `root` is kept for callers and used only for annotation.
+    """
+    return not path.startswith('/')
 
 
 def strip_comments(lines):
@@ -205,16 +211,26 @@ def audit_gate(path, root, window=3):
 
 def gates_with_skip_paths(build, root):
     """Independent count: how many invoked gates contain a SKIP path at all.
-    Taken with grep -- a different instrument from this file's regexes."""
-    n = 0
+    Taken with grep -- a different instrument from this file's regexes.
+
+    Returns (with_skip, missing). ★ An earlier version silently `continue`d on
+    a non-existent gate, and audit_gate() returned [] for the same file -- so
+    BOTH SIDES OF THE RECONCILE SHARED ONE os.path.exists FILTER and could not
+    disagree about a missing gate. Two counts that share a filter are not
+    independent with respect to it. A gate build.sh invokes but which is not on
+    disk is a BROKEN CHECKOUT by this project's own rule, and is now reported
+    rather than dropped from both counts at once.
+    """
+    n, missing = 0, []
     for g in invoked_gates(build):
         f = os.path.join(root, g)
         if not os.path.exists(f):
+            missing.append(g)
             continue
         r = subprocess.run(['grep', '-qE', r'^[^#]*(echo "SKIP|print\(f?"SKIP)', f])
         if r.returncode == 0:
             n += 1
-    return n
+    return n, missing
 
 
 def invoked_gates(path):
@@ -268,7 +284,19 @@ def selftest(build):
     root = os.path.dirname(os.path.abspath(build))
     examined = sum(1 for g in invoked_gates(build)
                    if audit_gate(os.path.join(root, g), root))
-    surveyed = gates_with_skip_paths(build, root)
+    surveyed, missing = gates_with_skip_paths(build, root)
+    # ★ ACCOUNTING IDENTITY, and it can fail: every gate build.sh invokes is
+    #   either examined (has a SKIP path), has no SKIP path, or is MISSING.
+    #   This is what the shared-existence-filter bug hid — a missing gate used
+    #   to vanish from both sides of the reconcile at once.
+    total = len(invoked_gates(build))
+    no_skip = total - surveyed - len(missing)
+    if examined + no_skip + len(missing) != total:
+        print(f"  FAIL accounting: examined {examined} + no-skip {no_skip} + "
+              f"missing {len(missing)} != {total} invoked"); ok = False
+    else:
+        print(f"  accounting: {total} invoked = {examined} with a SKIP path + "
+              f"{no_skip} without + {len(missing)} MISSING")
     # ★ reconcile(0, 0) PASSES. A surveyed count of zero means the gates were
     #   not where we looked (wrong root), and a tool that reports "reconciled"
     #   from an empty survey is asserting nothing -- the vacuity this whole
@@ -347,7 +375,10 @@ def main():
                 print(f"    CHECKOUT  {g}:{ln}  {txt}")
     # ★ RECONCILE THE SECOND SURFACE TOO. The first version of this scan found 3
     #   where grep found 37 -- and printed the 3 as though they were the count.
-    surveyed = gates_with_skip_paths(a.build, root)
+    surveyed, missing = gates_with_skip_paths(a.build, root)
+    if missing:
+        print(f"    ★ BROKEN CHECKOUT — build.sh invokes {len(missing)} gate(s) "
+              f"that are NOT ON DISK: {', '.join(missing)}")
     try:
         reconcile("invoked gates with a SKIP path", surveyed, examined, tolerate=0)
         print(f"    {examined} invoked gates carry a SKIP path reaching exit 0"
