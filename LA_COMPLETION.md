@@ -489,6 +489,110 @@ every item below cites the ruling rather than inferring one.
   `gate_srcdrift.py` and assert the build exits non-zero — the arm that is green
   today. *Tier 1: it is the instrument protecting every generated module, and it
   is the one that can disappear without a sound.*
+- `[ ]` **A SKIP satisfies a gate invocation in FOUR places — and the
+  `verified-*` checkpoint tag cannot tell.** The item above is one instance;
+  this is the census, and the census is worse than the instance. Every site
+  below was verified by running its block **verbatim with the file absent**,
+  not by reading it — all four printed a SKIP line and returned **`BLOCK_RC=0`
+  under `set -e`**:
+
+  | site | absent file | what silently stops running |
+  |---|---|---|
+  | `build.sh:820` | `gate_srcdrift.py` | the 290-pair SRC/live drift check, all 14 spec modules |
+  | `build.sh:2688` | `fuzz_grammar.py` | the transcribed-grammar ↔ `parser.la` differential |
+  | `build.sh:4305` | `gate_selfext0.py` | the self-extension tripwire |
+  | `build.sh:4527` | `mutate.py` | **the mutation lever** — the instrument that certifies other gates can go red |
+
+  ★★ **THE KEYSTONE: THE PREMISE IS WRITTEN DOWN, AND IT IS FALSE.**
+  `build.sh:7167-7188` tags the commit `verified-<date>-<sha>` with the annotation
+  *"Full audit (build.sh) passed clean."*, justified by its own comment:
+  *"Reached only when every check above passed (each failure exits 1 earlier), so
+  the audit is clean here."* **A check that SKIPs does not exit 1.** What the code
+  establishes is "no check FAILED", which is not "every check passed" — it
+  includes every check that never ran. The tag's three guards are working tree,
+  git-dir, and pre-existing tag; **not one of them is a gate result.** So a run on
+  a box without `python3` produces a durable, human-facing certification that four
+  instruments — including the one that certifies the others — never executed.
+  This is Door **iii** terminating in Door **vi**: the announcement is not prose
+  this time, it is a **git tag a person rolls back to.**
+
+  ★ **THE III-1 REPAIR WAS APPLIED BY FAMILY, NOT BY SHAPE.** `build.sh` records
+  six sibling repairs of exactly this defect in its own comments — `:4365 :4393
+  :4420 :4448 :4468 :4497`, each reading *"This read `if [ -f gate ]; then … else
+  echo SKIP; fi`, so deleting the file kept the build GREEN."* All six are `.sh`
+  gates in the selfext family. **`gate_selfext0.py` sits 60 lines ABOVE its six
+  repaired siblings, in the same family, and still has the defect** — it was
+  passed over because it is a `.py`, not because anyone judged it exempt. The
+  rule was known, written, and applied to a *family* rather than to a *shape*.
+
+  ★ **THE PRECEDENT IS IN THE TREE, TWICE, IN ITS OWN WORDS.**
+  `gate_selfext2b.sh:65` — *"this gate now FAILS rather than exiting 0, because a
+  SKIP is indistinguishable from a PASS to the one bit of resolution build.sh
+  reads, and this gate skipped silently in four consecutive builds"* — and
+  `gate_xmssidx_core.sh:46` — *"a missing input is a broken checkout, not a reason
+  to skip"*. Neither is a new rule; both are this one, already applied.
+
+  ★ **`fuzz_grammar` HAS TWO FURTHER CHANNELS, AND THE SECOND IS NOT ABOUT SKIPS
+  AT ALL.**
+  (a) It SKIPs green **with the gate file present**: `fuzz_grammar.py:298` does
+  `print("SKIP …"); return 0` when its inputs are missing, and `build.sh:2690`
+  matches `^SKIP` and continues. Measured: `--logos <empty dir>` → `GATE_RC=0`.
+  This is Rule 1 verbatim — *a gate that declines to run is indistinguishable
+  from one that ran and passed.*
+  (b) ★★ **IT VALIDATES ANOTHER TRACK'S TREE.** `fuzz_grammar.py:285` defaults
+  `--logos` to **`~/logos`**, and `build.sh:2689` invokes it with **no `--logos`**.
+  On every worktree, this gate checks `~/logos/parser.la` and `~/logos/tiny_host`
+  — *not the tree being built*. Both halves red-tested: perturbing the lexer's
+  `glyph` keyword in a copied tree turned it **RED, rc 1** (4 valid programs
+  `model=accept parser=reject`), so the gate is live and capable; and `parser.la`
+  is byte-identical between `~/logos` and `~/logos-e` today, so the defect is
+  **latent, not currently producing a wrong verdict — which is exactly why it has
+  survived.** ★ This is a **FIFTH** hardcoded reach into another track's tree,
+  after the Tier 1 item *"Four hardcoded absolute paths"* was closed `[✓]` on
+  2026-08-23. That sweep covered the `freeze_*` family; this one is in a **gate**.
+  **The same meta-pattern as the paragraph above: an item closed by family rather
+  than by shape.** ★ It also falsifies a live operational assumption — a session
+  running gates under `unshare -rm` with a private `/tmp` is *not* isolated from a
+  hardcoded `~/logos`: a mount namespace gives a session its own `/tmp`, never its
+  own worktree.
+
+  ★ **THE ENVIRONMENTAL SKIPS ARE A DIFFERENT CLASS AND ARE NOT COUNTED HERE** —
+  state this explicitly, because the next reader will otherwise fold them in and
+  inflate the number. `nasm :1698`, `ld :2255/:2278`, DRM `:3941/:3944`, and the
+  **36 `kernel/gate_*.sh`** scripts that do `command -v qemu-system-x86_64 || {
+  echo SKIP; exit 0; }` (measured: `GATE_RC=0`) are absent **toolchain**, not an
+  absent **checkout**. A missing gate file is a broken checkout and must hard-fail;
+  a missing QEMU is a real machine. But their remedy is not "do nothing": on a
+  QEMU-less box **36 kernel gates skip and the `verified-*` tag is still applied**,
+  so the environmental class needs a **census assertion** — the build must refuse
+  to certify a run it did not fully execute — rather than a hard-fail per site.
+  ⚠ Checked and CLEARED, recorded because it looks alarming and the next reader
+  will trip on it: `qemu-system-x86_64` here resolves to a **shim**
+  (`~/.logos/shims/`), which is honest — it `exec`s `/usr/bin/qemu-system-x86_64`
+  on every path and only adds a lock-contention warning. It never fakes success.
+
+  **Gate:** (1) each of the four sites hard-fails on an absent file, as
+  `build.sh:410-417` already does for the five signature gates; (2) `build.sh`
+  passes `--logos "$PWD"` to `fuzz_grammar.py` and stops accepting `^SKIP` as
+  success; (3) the build **tallies SKIPs and refuses to auto-tag** when the count
+  is non-zero, so the checkpoint asserts what was run.
+  **Red paths:** delete each of the four files and assert the build exits
+  non-zero — *the arm that is green today, in all four*; point `--logos` at a tree
+  with a perturbed `parser.la` and assert RED (**already exercised: rc 1**); and
+  force one SKIP and assert **no `verified-*` tag is created** — that last one is
+  the arm that matters, because a tag-suppression check that is only ever run on a
+  clean box passes for a build that never suppresses anything.
+  ⚠ **Filed, not fixed.** `build.sh` is shared and has changed on four branches
+  since the merge-base; the repair is an integration decision for Erik, the same
+  posture Track C is holding on its gate census.
+  ★ **Adjacent instrument, cite together:** the hub's `~/.logos/verify/gatesweep.sh`
+  asks *"does anything run this gate at all"* (result: A/B/E clean, C 25 dead,
+  D 26 undocumented). This item asks *"can a gate that IS invoked be satisfied
+  without running"*. Neither question implies the other, and between them they
+  cover the class.
+  *Tier 1: the mutation lever and the drift gate are the two instruments every
+  other gate's credibility rests on, and both can be satisfied by their own
+  absence.*
 - `[ ]` **The Codex's own integration gate is unimplemented** — `crit:compliance`
   (`CODEX_AUTOPOIETICUS.tex` :816-:833), the **Ontosyntactic Compliance
   Criterion**: *every* component integrated into LogOS must satisfy five
