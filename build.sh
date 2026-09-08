@@ -4308,8 +4308,16 @@ case "$GRAMOUT" in
   *"Substance=Large"*"That=There"*) : ;;
   *) echo "FAIL  grammar: the cross-table collision set changed — got: $GRAMOUT"; ok=0 ;;
 esac
+# ★ The `|| true` here used to swallow the host's exit status, and the two arms
+#   below only catch *FAIL* and empty output.  A module MISSING from the tree
+#   prints `read_file: cannot open 'coin.la': No such file or directory` --
+#   neither empty nor *FAIL* -- so it fell through both arms and the loop went
+#   GREEN on a module that never ran.  That is how `coin.la` sat documented as
+#   built (LA_COMPLETION.md, DONE 2026-08-23) while being tracked on no branch
+#   at all: this gate could not go red on its absence.  Keep the status.
 for M in discourse coin immune ablate phonseal; do
-  MOUT="$(timeout 600 ./tiny_host $M.la 2>&1 || true)"
+  MOUT="$(timeout 600 ./tiny_host $M.la 2>&1)" || {
+    echo "FAIL  $M: $M.la did not run (missing from the tree, or the host halted) — $MOUT"; ok=0; continue; }
   case "$MOUT" in
     *FAIL*) echo "FAIL  $M: a gate failed — $MOUT"; ok=0 ;;
     "")     echo "FAIL  $M: no output (module did not run)"; ok=0 ;;

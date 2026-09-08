@@ -1,0 +1,138 @@
+# =====================================================================
+#  coin.la — THE COINAGE ORGAN, and the cost the ⊗ correction imposed on
+#  Theorem gen-complete.
+#
+#  The lexicon is supposed to be UNBOUNDED: "new concepts are coined by new
+#  combinations, not by arbitrary stipulation" (:5429). Every table in the
+#  codex is a finished list; nothing in the running system took a concept
+#  and PRODUCED a glyph for it. Coinage was a property the language was
+#  said to have, and no code path performed it.
+#
+#  ── WHAT COINAGE IS, AND WHAT IT MUST NOT BE ────────────────────────
+#  COIN takes a mode and two existing glyphs and returns a new one whose
+#  Ren IS its etymology. Three things must hold or it is stipulation
+#  wearing coinage's name:
+#    (1) DETERMINISM  — the same input always yields the same glyph.
+#    (2) RECOVERABILITY — the constituents and the mode are readable back
+#        out of the result, so the coined glyph carries its own derivation.
+#    (3) CLOSURE — the result is itself coinable, without limit.
+#
+#  ── ★★ THE FINDING: THE ⊗ CORRECTION HAS A PRICE, AND IT LANDS HERE ─
+#  Thm. gen-complete claims: "Two speakers constructing the same concept
+#  independently will arrive at the same phonym." That was cheap while ⊗
+#  commuted — operand order was free, so both speakers converged whichever
+#  order they chose. Making ⊗ non-commutative (LA.tex:2837, corrected
+#  across five normalisers and two renderers) removes that freedom:
+#
+#        ⊗(LOVE,RECOGNITION)  and  ⊗(RECOGNITION,LOVE)
+#
+#  are now two glyphs, and nothing in the phrase "the concept of
+#  compassion" tells a second speaker which one to build.
+#
+#  ★ The resolution is not to weaken ⊗ back. It is that operand ORDER IS
+#  PART OF THE CONCEPT: 'Being-recognizing' and 'the being of recognition'
+#  are genuinely two concepts, which is exactly why :2837 says what it
+#  says. So convergence still holds — but the theorem's phrase "the same
+#  concept" is now carrying weight it was not carrying before, and a
+#  speaker who has only an English gloss does not have enough to coin
+#  from. That is a real and unclosed gap in the acquisition story, and it
+#  is recorded here rather than hidden by a commutativity that the
+#  specification forbids.
+#
+#  Both halves are gated below: ⊕ converges under either order (co-presence
+#  is symmetric) and ⊗ does NOT (synthesis is directed). A module that
+#  asserted only the first would be describing the language as it was
+#  before the correction.
+# =====================================================================
+
+import("lexicon.la")   # PARSE PH KAN PRIM SYN CON DIR CONT MC PHN NAM
+
+glyph Z    = la f. (la x. f(la v. x(x)(v)))(la x. f(la v. x(x)(v)))
+glyph IF   = la c. la t. la f. c(t)(f)("!")
+glyph AND  = la p. la q. p(q)(p)
+glyph NOT  = la p. la t. la f. p(f)(t)
+glyph TRUE = la t. la f. t
+glyph PAIR = la a. la b. la f. f(a)(b)
+glyph FST  = la p. p(la a. la b. a)
+glyph SND  = la p. p(la a. la b. b)
+
+glyph T_ = la d. FST(PARSE(d))
+
+# ── THE ORGAN. A coined glyph is a triple: its canonical Ren, its phonym,
+#    and the tree it came from. The Ren is COMPUTED from the tree, never
+#    supplied — that is what makes it autological rather than a label.
+glyph COIN     = la mode. la a. la b. mode(a)(b)
+glyph COIN_MC  = la a. MC(a)
+glyph REN      = la g. KAN(g)
+glyph SAY      = la g. PH(g)
+
+# ── (1) DETERMINISM ─────────────────────────────────────────────────
+glyph C1 = COIN(SYN)(T_("3"))(T_("2"))
+glyph C2 = COIN(SYN)(T_("3"))(T_("2"))
+glyph OK_DETERMINISTIC = AND(str_eq(REN(C1))(REN(C2)))(str_eq(SAY(C1))(SAY(C2)))
+
+# ── (2) RECOVERABILITY — the constituents and the mode are readable out
+#    of the coined Ren. A coinage whose parents vanished would be
+#    stipulation: the glyph would mean whatever we said it meant.
+glyph HASVOW2 = la x. x
+glyph SUBSTR = Z(la self. la n. la h.
+    IF(str_eq(h)(""))(la _. NOT(TRUE))(la _.
+    IF(str_eq(n)(PREFIX(n)(h)))(la _. TRUE)(la _. self(n)(str_tail(h)))))
+glyph PREFIX = Z(la self. la n. la h.
+    IF(str_eq(n)(""))(la _. "")(la _.
+    IF(str_eq(h)(""))(la _. "")(la _. concat(str_head(h))(self(str_tail(n))(str_tail(h))))))
+glyph OK_RECOVERABLE = AND(SUBSTR("LOVE")(REN(C1)))
+                          (AND(SUBSTR("RECOGNITION")(REN(C1)))(SUBSTR("*(")(REN(C1))))
+
+# ── (3) CLOSURE — a coined glyph is an operand for the next coinage, and
+#    the depth keeps growing. Coinage that could not consume its own
+#    output would bottom out at level 2 and the lexicon would be finite.
+glyph D1 = COIN(SYN)(C1)(T_("1"))
+glyph D2 = COIN(CON)(D1)(COIN_MC(C1))
+glyph OK_CLOSURE = AND(NOT(str_eq(REN(D1))(REN(C1))))
+                      (AND(NOT(str_eq(REN(D2))(REN(D1))))
+                          (AND(SUBSTR("LOVE")(REN(D2)))(SUBSTR("RECOGNITION")(REN(D2)))))
+
+# ── ★ CONVERGENCE, both halves ──────────────────────────────────────
+#  ⊕ is co-presence and symmetric: two speakers who pick opposite orders
+#  coin the SAME glyph. This is the half the theorem always had.
+glyph CON_AB = COIN(CON)(T_("3"))(T_("2"))
+glyph CON_BA = COIN(CON)(T_("2"))(T_("3"))
+# ★ Convergence is a claim about the CONCEPT, so it is tested on the
+#   NORMALISED phonym -- the sound of a concept is the sound of its
+#   canonical form. Tested on the raw renderer it fails, and that failure
+#   is what revealed this module's missing normalisation layer.
+glyph SAY_N = la g. PH_N(g)
+glyph OK_CONVERGE_CON = AND(str_eq(SAY_N(CON_AB))(SAY_N(CON_BA)))
+                           (NOT(str_eq(SAY(CON_AB))(SAY(CON_BA))))
+
+#  ⊗ is directed: opposite orders coin DIFFERENT glyphs. This is the half
+#  the correction created, and asserting its negation is what the old
+#  sigil gate did.
+glyph SYN_AB = COIN(SYN)(T_("3"))(T_("2"))
+glyph SYN_BA = COIN(SYN)(T_("2"))(T_("3"))
+glyph OK_DIVERGE_SYN = AND(NOT(str_eq(REN(SYN_AB))(REN(SYN_BA))))
+                          (NOT(str_eq(SAY_N(SYN_AB))(SAY_N(SYN_BA))))
+
+#  ★★ and the two must not be the same rule wearing two names: if ⊕ and ⊗
+#  behaved alike, one of the two gates above would be vacuous.
+glyph OK_MODES_DIFFER = NOT(str_eq(REN(CON_AB))(REN(SYN_AB)))
+
+# ── ★ COINAGE IS NOT STIPULATION: the coined glyph's phonym is DERIVED,
+#    so a speaker who knows the parents can pronounce a word they have
+#    never heard. That is the whole claim of a generative lexicon, and it
+#    is checkable: Compassion is Love ⊗ Recognition, and its phonym must
+#    be exactly the two parents' phonyms fused, with nothing added.
+glyph OK_PRONOUNCEABLE = AND(str_eq(SAY(C1))("lushi"))
+                            (AND(str_eq(SAY(T_("3")))("lu"))(str_eq(SAY(T_("2")))("shi")))
+
+glyph MK = la c. IF(c)(la _. "OK")(la _. "FAIL")
+glyph MAIN = print(
+  concat(concat(concat(concat("coin ren=")(REN(C1)))(concat(" say=")(SAY(C1))))
+                (concat(concat(" | deterministic ")(MK(OK_DETERMINISTIC)))
+                       (concat(" | recoverable ")(MK(OK_RECOVERABLE)))))
+        (concat(concat(concat(" | closure ")(MK(OK_CLOSURE)))
+                      (concat(" | converge-⊕ ")(MK(OK_CONVERGE_CON))))
+               (concat(concat(concat(" | diverge-⊗ ")(MK(OK_DIVERGE_SYN)))
+                             (concat(" | modes-differ ")(MK(OK_MODES_DIFFER))))
+                      (concat(" | pronounceable ")(MK(OK_PRONOUNCEABLE))))))
