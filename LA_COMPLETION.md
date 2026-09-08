@@ -814,6 +814,43 @@ every item below cites the ruling rather than inferring one.
   the item's original gate — *"fail the build on the first non-compliant one"* —
   stops failing 57% of the tree for composing correctly.
 
+  ★★★ **CORRECTION (2026-09-08, same day): *Being & Becoming* IS IN THE TREE.**
+  `df94b2b`'s commit message recorded that `aatc.la` implements C1–C4 with "its
+  governing source text outside the repo… only in `~/Downloads/CODICIES/`". **Wrong.**
+  It is tracked, and has been since `6e3ce91` (2026-06-02, *"Publish curated
+  codices"*):
+
+      codices/published/Being___Becoming.tex     (+ _ZH, and B_B_Arabic/German, Etre_et_Devenir)
+
+  ★ **Three mechanisms in my own searches, all producing the same confident empty:**
+  (1) I grepped the file list for **`codex`**, and the directory is **`codices`** —
+  which does not contain that substring (verified: `echo codices | grep -c codex` →
+  `0`); (2) `ls ~/logos/*.tex` globs the **root only**, not subdirectories; (3) my
+  `find` over `~/logos/codices` **did return 91 matches** — and I piped it through
+  `head`, then read the visible lines as the whole result. **The same truncation
+  failure as `cut -c1-180`, in the same session, on the same day I wrote the rule.**
+  The filename also encodes `" & "` as **`___`**, so "Being & Becoming" and "Being
+  and Becoming" both miss it.
+
+  ✓ **`b6f8b30`'s C4 ruling STANDS, and now stands on IN-REPO text** — verified
+  directly in `codices/published/Being___Becoming.tex` (positive control `AATC` = 89
+  hits): the C4 self-audit is present verbatim (*"…Every concept is derived
+  internally… The Archē is its own peer. ✓"*), as are `C4 is the discriminant` and
+  `change changes`. The ruling is **stronger** than when filed, since it no longer
+  cites a document outside the tree.
+
+  ⚠ **BUT THE TWO COPIES DIVERGE, AND THAT IS A REAL FINDING.**
+  repo `00b3e227` / **7,102 lines** vs `~/Downloads` `8f57f0b2` / **7,673 lines** —
+  **571 lines apart**; the in-repo copy is the **older June curated publication**.
+  CLAUDE.md's rule — *"a divergence between code and codex cannot be adjudicated
+  from a document outside the repo"* — is satisfied by the in-repo copy, **which
+  introduces a staleness problem in its place**: anyone auditing code-against-codex
+  from the tree is auditing against a text 571 lines behind. **Which copy governs is
+  Erik's ruling.** Filed, not acted on. *(The hypothesis "a second divergent copy of
+  the governing spec would itself be a finding" was raised and cleared for
+  `CODEX_AUTOPOIETICUS.tex`, which is byte-identical across all copies — **the clean
+  result did not generalise, and I generalised it.**)*
+
   ★★★ **CORRECTION TO THIS ITEM'S CITATION NOTE (`b6f8b30`) — THE QUOTE IS REAL,
   AND MY SEARCH COULD NOT HAVE FOUND IT.** I recorded that *"A bug IS Pathology 4
   (Inversion) at the computational resolution"* is **not** in *Logos & Paradox*.
