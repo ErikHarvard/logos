@@ -632,7 +632,16 @@ vector. `alpha` holds a canary in **its own** address space.
 
 **R3 and R4 are the two that matter most**, and neither is obvious: R3 separates
 containment from masking, and R4 stops the isolation assertion from being
-vacuous. R1 costs nothing because the current kernel already produces it.
+vacuous. ~~R1 costs nothing because the current kernel already produces it.~~
+**CORRECTED 2026-09-08 — R1 is not free** (measured; see the struck R1 row above
+and P2's *measured starting state*). A ring-3 fault today produces no output and
+no exit code at all, so R1 must NAME the failure shape rather than accept any
+non-green. §5.0.3 restates it as R1'.
+
+Also superseded by §5.0.3: **R5 (restart storm) and green assertion 5 (restart
+under a NEW pid) move to P6's gate**, because restart after a fault means
+rebuilding the PML4 from a pristine image — that is P3. Keeping them here would
+make the keystone ungateable until P3 existed.
 
 **Honest note on cost.** This gate needs P1–P4 before it can run at all; it is
 the *acceptance test* for the keystone, not an early check. P1 and P2 each want
