@@ -4855,6 +4855,16 @@ bash kernel/gate_k5b2.sh || exit 1
 # fire strictly less often — a conditional that stopped reading the stack still
 # fires, still prints a plausible backtrace, and still agrees.
 #
+# Slice 5 adds STEPPING, and adds no dispatch for it either: a step command is
+# a STOP CONDITION, which is how a real debugger does it — gdb's `next` sets a
+# condition on the current frame and resumes rather than running a second,
+# slower interpreter. step/step-over/step-out are three more predicates over
+# the same signature, and the gate asserts they select strictly NESTED stop
+# sets. They measure the STACK, not the depth: `d` counts every subexpression
+# while only a call pushes a frame, so a step-over written on `d` refuses to
+# look at an argument of the expression you are standing on — the two differ
+# on the test program (7 against 8) and the gate pins them apart by count.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide

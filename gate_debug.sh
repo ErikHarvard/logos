@@ -40,10 +40,19 @@
 # CONTROL and requires the conditional to fire strictly less often — a
 # BRK_CALLER degraded to BRK_VAR still fires, still prints a plausible bt,
 # and still agrees, so the count relation is the only thing separating them.
+#
+# SLICE 5 (stepping) adds no dispatch either: a step command is a STOP
+# CONDITION, which is how a real debugger implements it — gdb's `next` sets a
+# condition on the current FRAME and resumes rather than running a second,
+# slower interpreter. So step/step-over/step-out are three more predicates
+# over the same (d, ast, env, stk) signature, and check 6 asserts they select
+# strictly NESTED stop sets. They measure the STACK, not the depth: `d` counts
+# every subexpression while only a call pushes a frame, and on SRC_STEP the
+# two numbers differ (7 against 8), so a step-over written on `d` is caught.
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
-EXPECT_AGREE=15
+EXPECT_AGREE=18
 EXPECT_BREAK=11
 
 command -v timeout >/dev/null 2>&1 || { echo "SKIP  debug: timeout(1) absent"; exit 0; }
@@ -63,8 +72,18 @@ agree=$(printf '%s\n' "$H" | grep -c '^AGREE')
 #   A breakpoint now reports TWO projections (slice 3), so they are
 #   counted separately and required to pair up — a break that printed one
 #   without the other would otherwise satisfy every count below.
-brk_env=$(printf '%s\n' "$H" | grep -c '!! BREAK .* env:')
-brk_bt=$(printf '%s\n' "$H" | grep -c '!! BREAK .* bt:')
+#   ★ COUNTED OVER THE NON-STEPPING SECTIONS ONLY, and slice 5 is why. A
+#   step predicate also fires BREAK lines — 19 of them — so counting them
+#   here silently folded stepping into a check about breakpoints, and every
+#   stepping defect then reported as "a breakpoint case silently stopped
+#   firing": the RIGHT verdict through the WRONG assertion, which is the
+#   failure this gate warns about at slice 1 and which was caught here by a
+#   red run, not by reading. The filter clears on any OTHER section header
+#   rather than cutting to end-of-output, so a slice appended after stepping
+#   is counted again instead of silently dropped.
+nostep() { printf '%s\n' "$H" | awk '/^--- step: /{s=1;next} /^--- /{s=0} !s'; }
+brk_env=$(nostep | grep -c '!! BREAK .* env:')
+brk_bt=$(nostep | grep -c '!! BREAK .* bt:')
 diverged=$(printf '%s\n' "$H" | grep -c '^DIVERGED')
 if [ "$diverged" -ne 0 ]; then
     echo "FAIL  debug 1: $diverged program(s) DIVERGED — tracing changed the answer:"
@@ -268,29 +287,78 @@ else
     echo "PASS  debug 5: conditionals filter — same node reached twice, control fires $c_ctl, stack-conditional $c_via (route A), env-conditional $c_whn (route B), unmatched frame 0, all $EXPECT_AGREE programs still AGREE"
 fi
 
-# ── 6. host == VM ──────────────────────────────────────────────────────────
+# ── 6. STEPPING: the three commands select strictly NESTED stop sets ───────
+#   SRC_STEP puts nodes at THREE frame depths (MAIN's own, F's, and G's
+#   nested inside F) because a one-call program makes step-out EMPTY, and an
+#   empty set satisfies "strictly fewer" while asserting nothing — the
+#   vacuity this gate has had to guard against at every slice.
+#
+#   ★ THE FRAME DEPTH IS READ OFF THE bt LINE, NOT OFF THE PREDICATE. SHOW_STK
+#   renders one frame per name joined by " <- ", so a stop inside a nested call
+#   is exactly a bt line carrying two separators. Asserting on the OUTPUT means
+#   the predicate and the renderer would both have to be wrong, in agreement,
+#   to pass — where asserting on a recomputed depth would just be asking the
+#   suspect to confirm its own story.
+s_into=$(csec "step: INTO" | grep -c '!! BREAK .* env:')
+s_over=$(csec "step: OVER" | grep -c '!! BREAK .* env:')
+s_out=$(csec  "step: OUT"  | grep -c '!! BREAK .* env:')
+s_out_l=$(csec "step: OUT" | grep -c .)
+over_deep=$(csec "step: OVER" | grep '!! BREAK .* bt:' | grep -c ' <- .* <- ')
+out_deep=$(csec  "step: OUT"  | grep '!! BREAK .* bt:' | grep -c ' <- ')
+#   Containment, as an identity between counts rather than a set diff: OVER
+#   must be exactly INTO restricted to frame depth <= 2, and OUT exactly the
+#   frame-depth-1 stops. That IS the specification of the three predicates,
+#   and it needs only grep — `comm` would want temp files and `diff <(…)` is
+#   the process-substitution bashism this #!/bin/sh gate cannot use.
+into_le2=$(csec "step: INTO" | grep '!! BREAK .* bt:' | grep -vc ' <- .* <- ')
+over_shallow=$(csec "step: OVER" | grep '!! BREAK .* bt:' | grep -vc ' <- ')
+#   ★ ORDERED SEMANTIC-FIRST, EXACT-COUNTS-LAST, for the reason slice 4 found
+#   the hard way: written after the exact counts, every check below would be
+#   unreachable, because 9/7/3 already pins each number. A stepper that had
+#   stopped descending entirely (all three selecting the same 3 nodes) passes
+#   both absences and is caught ONLY by the strict ordering — so that branch
+#   has to be able to run.
+if [ "$s_out_l" -lt 3 ] || [ "$s_out" -eq 0 ]; then
+    echo "FAIL  debug 6: the step-out section has $s_out_l lines and $s_out stops — an empty set satisfies every 'fewer than' test below, so it proves nothing"; ok=0
+elif [ "$over_deep" -ne 0 ]; then
+    echo "FAIL  debug 6: step-over stopped $over_deep time(s) inside a nested call (a bt line with two frames above it) — it is descending into calls, which is the one thing step-over means not to do"; ok=0
+elif [ "$out_deep" -ne 0 ]; then
+    echo "FAIL  debug 6: step-out stopped $out_deep time(s) while still inside the frame it was leaving — it is using <= where it must use <"; ok=0
+elif [ "$s_into" -le "$s_over" ] || [ "$s_over" -le "$s_out" ]; then
+    echo "FAIL  debug 6: stops are into=$s_into over=$s_over out=$s_out — not strictly nested, so at least two of the three commands are the same command"; ok=0
+elif [ "$into_le2" -ne "$s_over" ]; then
+    echo "FAIL  debug 6: step-over selected $s_over stops but INTO has $into_le2 at frame depth <= 2 — over is not INTO restricted to this frame"; ok=0
+elif [ "$over_shallow" -ne "$s_out" ]; then
+    echo "FAIL  debug 6: step-out selected $s_out stops but OVER has $over_shallow at frame depth 1 — out is not OVER restricted to the caller"; ok=0
+elif [ "$s_into" -ne 9 ] || [ "$s_over" -ne 7 ] || [ "$s_out" -ne 3 ]; then
+    echo "FAIL  debug 6: stops are into=$s_into over=$s_over out=$s_out, expected 9/7/3 — the traced shape of SRC_STEP changed"; ok=0
+else
+    echo "PASS  debug 6: stepping selects strictly nested stop sets (into $s_into, over $s_over, out $s_out) — step-over never enters a call, step-out never stops inside the frame it leaves, and each is the previous one restricted by FRAME depth (7 here, where node depth would give 8)"
+fi
+
+# ── 7. host == VM ──────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 6: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 7: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 6: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 7: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 6: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 7: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 6: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 7: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 6: host and VM disagree"
+                echo "FAIL  debug 7: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

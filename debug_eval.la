@@ -406,4 +406,56 @@ glyph MAIN_COND = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(
     print("--- cond: BRK_WHEN x = from-b — same node, one binding ---")))(
     print(AGREES_BRK(BRK_WHEN("x")("from-b"))(SRC_TWO)))
 
-glyph MAIN = SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND)
+# ── STEPPING — step / step-over / step-out ───────────────────────────
+#   ★ A STEP COMMAND IS A STOP CONDITION, NOT AN EXECUTION MODE, and that
+#   is why this slice adds no dispatch. It is how a real debugger does it:
+#   gdb's `next` does not switch to a second, slower interpreter — it sets
+#   a condition on the FRAME the program is in and resumes. So stepping
+#   here is three more predicates over the (d, ast, env, stk) signature
+#   slice 4 opened, and the successive firings of one predicate ARE the
+#   successive stops of pressing that key repeatedly.
+#
+#   ★ IT MEASURES THE STACK, NOT THE DEPTH, and that is the content of the
+#   slice rather than an implementation detail. `d` counts every
+#   subexpression — a function position, an argument — while only a CALL
+#   pushes a frame. "Step over" means "do not descend into a CALL", so a
+#   step-over written on `d` would also refuse to look at an argument of
+#   the very expression you are standing on, which is not what the command
+#   means. n = STK_LEN(stk) is the frame depth. The two are not the same
+#   number on any program with a nested call, and the gate pins them apart
+#   by count rather than trusting the argument just made.
+glyph STK_LEN = Z(la self. la stk.
+    IF(ENV_MORE(stk))(la _. add(1)(self(ENV_TAIL(stk))))(la _. 0))
+
+glyph LE = la a. la b. IF(lt(a)(b))(la _. TRUE)(la _. int_eq(a)(b))
+
+#   INTO — the next node, whatever it is; a call is descended into.
+#   ★ n0 IS GENUINELY UNUSED HERE, and deliberately so rather than
+#   overlooked: single-step stops everywhere, so the condition is TRUE.
+#   Keeping the parameter gives the three commands ONE shape, which is
+#   what lets a driver hold "the current step mode" as a single value.
+glyph STEP_INTO = la n0. la d. la ast. la env. la stk. TRUE
+#   OVER — this frame or shallower; the insides of a call are skipped.
+glyph STEP_OVER = la n0. la d. la ast. la env. la stk. LE(STK_LEN(stk))(n0)
+#   OUT — only once this frame is gone: strictly shallower.
+glyph STEP_OUT  = la n0. la d. la ast. la env. la stk. lt(STK_LEN(stk))(n0)
+
+#   ★ SRC_STEP IS BUILT TO SEPARATE ALL THREE, which the earlier programs
+#   cannot do. It needs nodes at three different FRAME depths: MAIN's own
+#   frame, F's, and G's nested inside F. With the origin at frame 2 (you
+#   are stopped inside F) each command then selects a strictly different
+#   set — INTO everything, OVER everything but G's insides, OUT only what
+#   is left after F itself has returned. A program with one call would
+#   make OUT empty, and an empty set satisfies "strictly fewer" while
+#   asserting nothing.
+glyph SRC_STEP = "glyph G = la z. z\nglyph F = la y. G(y)\nglyph MAIN = F(\"in\")"
+
+glyph MAIN_STEP = SEQ(SEQ(SEQ(SEQ(SEQ(
+    print("--- step: INTO from frame 2, descends into calls ---"))(
+    print(AGREES_BRK(STEP_INTO(2))(SRC_STEP))))(
+    print("--- step: OVER frame 2, a call is skipped ---")))(
+    print(AGREES_BRK(STEP_OVER(2))(SRC_STEP))))(
+    print("--- step: OUT of frame 2, only once the frame is gone ---")))(
+    print(AGREES_BRK(STEP_OUT(2))(SRC_STEP)))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP)
