@@ -68,20 +68,32 @@ ISR_ERR   30
 ISR_NOERR 31
 
 ; ---- common handler: print the fault, then halt loudly ----
+; P2.0: `mov rsi, <label>` is a LOW ABSOLUTE address — unreachable once CR3 is a
+; process's. LOADMSG makes the reference RIP-relative under P2_HIGHIDT, so it
+; resolves through the high alias the gate offset already put us on. Non-P2 builds
+; expand to the identical `mov` and stay byte-identical.
+%macro LOADMSG 1
+%ifdef P2_HIGHIDT
+    lea     rsi, [rel %1]
+%else
+    mov     rsi, %1
+%endif
+%endmacro
+
 isr_common:
-    mov     rsi, exc_msg        ; "EXCEPTION "
+    LOADMSG exc_msg             ; "EXCEPTION "
     call    serial_puts
     mov     rax, [rsp + 0]      ; vector
     call    print_hex8
-    mov     rsi, err_msg        ; " err="
+    LOADMSG err_msg             ; " err="
     call    serial_puts
     mov     rax, [rsp + 8]      ; error code
     call    print_hex64
-    mov     rsi, rip_msg        ; " rip="
+    LOADMSG rip_msg             ; " rip="
     call    serial_puts
     mov     rax, [rsp + 16]     ; faulting rip
     call    print_hex64
-    mov     rsi, nl_msg
+    LOADMSG nl_msg
     call    serial_puts
 
     mov     al, IDT_FAIL        ; loud halt: distinct failure exit code
@@ -167,6 +179,10 @@ idt_install:
     mov     rcx, 32             ; vectors 0..31
 .fill:
     mov     rax, [rsi]          ; handler address
+%ifdef P2_HIGHIDT
+    mov     r8, HIGH_BASE       ; P2.0: the gate OFFSET must be the handler's high
+    add     rax, r8             ;   alias — a low offset is unreachable under a
+%endif                          ;   process CR3, so the fault cannot be delivered
     mov     word [rdi + 0], ax  ; offset[15:0]
     mov     word [rdi + 2], 0x08; selector
     mov     word [rdi + 4], 0x8E00 ; ist=0, type/attr=0x8E
@@ -179,6 +195,14 @@ idt_install:
     add     rsi, 8
     dec     rcx
     jnz     .fill
+%ifdef P2_HIGHIDT
+    ; P2.0: the IDTR base must be the high alias too. The IDTR is NOT reloaded on a
+    ; CR3 switch, so a low base keeps pointing into a process's unmapped low half.
+    ; Patched here, while the low identity map is still live and .rodata writable.
+    mov     rax, HIGH_BASE
+    add     rax, idt
+    mov     [idt_ptr + 2], rax
+%endif
     lidt    [idt_ptr]
     ret
 

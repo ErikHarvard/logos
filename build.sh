@@ -7257,6 +7257,18 @@ bash kernel/gate_p1.sh || exit 1        # P1 three processes, three address spac
 # isolation assertion is measuring nothing and the gate says so and fails.
 bash kernel/gate_p1.sh --red || exit 1  # P1 red control — isolation must be falsifiable
 
+say "LogosInit P2.0 — the fault path reachable from a process address space"
+# MEASURED: before P2.0 a ring-3 fault inside a P1 process emitted NOTHING and wedged
+# the machine (rc 124) — K2's loud-failure guarantee did not extend past a CR3 switch,
+# because the IDT, the gate offsets and isr_common's strings are all LOW and a process
+# maps only its own page. P2.0 relocates all three to the high alias. Loudness ONLY:
+# the machine still halts (exit 35); attribution and containment are P2.
+bash kernel/gate_p2_0.sh || exit 1      # P2.0 ring-3 #UD diagnosed at rip=P1_UVA, exit 35
+# The red control names its SHAPE rather than accepting "not green": the un-relocated
+# build must reproduce the measured WEDGE (rc 124, no output). A bare non-green also
+# matches a hang, a lost serial, or too short a timeout.
+bash kernel/gate_p2_0.sh --red || exit 1 # P2.0 red control — the wedge, by name
+
 say "K6 — ring 3, syscalls, and the typed IPC layer"
 bash kernel/gate_k6a.sh || exit 1   # K6a ring-3 privilege drop
 bash kernel/gate_k6b.sh || exit 1   # K6b the real LA image at ring 3

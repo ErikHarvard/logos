@@ -399,7 +399,7 @@ position-independent — those are fine.) The CPU faults reading the IDT descrip
 that fault cannot be delivered either, → double fault → triple fault → CPU stops.
 `-no-reboot` leaves QEMU alive, so a gate sees a **timeout, not an exit code**.
 
-#### P2.0 — the prerequisite brick: make the fault path REACHABLE
+#### P2.0 — the prerequisite brick — **BUILT + GATED, RED WITNESSED (2026-09-08)**
 
 P2's handler cannot run at all until the fault path exists in every address space.
 This is a separate, separately-gateable step *before* any attribution logic:
@@ -414,6 +414,41 @@ today produces *nothing and rc 124* must instead produce K2's **existing**
 attribution or containment — it converts the measured wedge into the diagnosed
 halt that §5.0's R1 wrongly assumed already existed. Only then does P2 proper
 (attribution + containment + return-to-scheduler) have anything to stand on.
+
+**BUILT.** `kernel/build_p2_0.sh` + `kernel/gate_p2_0.sh`, wired into `build.sh`
+with its red control. Green transcript — the whole of it:
+
+```
+EXCEPTION 06 err=0000000000000000 rip=0000000010000000
+```
+exit 35.
+
+**`rip=0000000010000000` is the assertion that does the work.** It is `P1_UVA`,
+the process's own entry VA, so the fault was taken *at ring 3 inside the process*.
+A fault on the kernel's own CR3 reports `rip=ffffffff8.......` and would satisfy
+every other assertion in the gate — so without this one, a build that faulted
+before the CR3 switch would pass.
+
+**All three relocations are independently load-bearing** — each was reverted alone
+and the gate went red at rc 124 (wedged) every time:
+
+| break | result |
+|---|---|
+| IDTR base left LOW | `FAIL … no 'EXCEPTION 06' …` rc 124 |
+| gate OFFSETS left LOW | `FAIL … no 'EXCEPTION 06' …` rc 124 |
+| `isr_common` strings left ABSOLUTE | `FAIL … no 'EXCEPTION 06' …` rc 124 |
+
+The third is worth a note: with the IDT reachable, the CPU *does* dispatch — and
+then `isr_common`'s first string read faults at a low address, re-enters the same
+handler, and recurses until the kernel stack is exhausted. It wedges for a
+*different reason* than the other two and looks identical from outside, which is
+why the gate asserts the transcript rather than merely "did not exit 35".
+
+**Byte-identity: 21 of 21 targets identical**, and this mattered more than for P1
+— `idt.asm` is `%include`d by **every** kernel build, not guarded behind one
+feature. All P2.0 edits are `%ifdef P2_HIGHIDT`; the message loads go through a
+`LOADMSG` macro that expands to the identical `mov` when it is not defined.
+`gate_p1.sh`, `gate_p1.sh --red` and `gate_k2.sh` all still pass.
 
 ### P3 — LA-driven process creation (`pspawn`)
 Today entry into a process is an `iretq` hardcoded in `boot.asm`. Init must

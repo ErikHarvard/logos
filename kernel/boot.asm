@@ -84,6 +84,19 @@
   %define IPC
   %define HH2_PTS
 %endif
+; P2.0: make the fault path REACHABLE FROM EVERY ADDRESS SPACE — the prerequisite
+; for P2 (fault attribution). MEASURED 2026-09-08: today a ring-3 fault inside a P1
+; process produces NO diagnostic and NO exit code — the machine wedges — because the
+; IDT, the ISR gate offsets and isr_common's string references are all LOW addresses,
+; and a process's PML4 maps only its own 2 MiB page plus the kernel high half. The
+; CPU cannot even read the IDT descriptor, so the fault is undeliverable and it
+; triple-faults. P2.0 relocates all three to the high alias, restoring K2's EXISTING
+; loud failure INSIDE a process. LOUDNESS ONLY — no attribution, no containment —
+; so P2.0 and P2 stay separately gateable.
+%ifdef P2_0
+  %define P1
+  %define P2_HIGHIDT
+%endif
 ; P1: THE KERNEL PROCESS TABLE (LogosInit brick 1 of 7). No LA image and no IPC —
 ; a real PCB array the kernel owns (pid, CR3, state, entry, stack, exit status,
 ; fault cause) plus a scheduler that enters THREE ring-3 processes in turn, each
@@ -1660,6 +1673,15 @@ p1_done_len  equ $ - p1_done_msg
 ;  comes from the table; content comes from the address space.
 ; ---------------------------------------------------------------------
 p1_payload:
+%ifdef P1_FAULTPROBE
+    ; P2.0's micro-gate: fault at ring 3, INSIDE a process address space. Without
+    ; the high-IDT fix this emits NOTHING and the machine wedges (measured: rc 124).
+    ; With it, K2's EXISTING handler diagnoses it — "EXCEPTION 06 err=0 rip=
+    ; 0000000010000000" — and exits 35. The rip is the process's own entry VA, which
+    ; is what proves the fault was taken from ring 3 in the PROCESS address space
+    ; rather than from the kernel (a kernel-CR3 fault reports a 0xffffffff8... rip).
+    ud2
+%endif
     mov     eax, P1_SYS_GETPID
     syscall                             ; -> rax = PCB[current].pid
     add     al, '0'                     ; P1 pids are 1..3: one digit
