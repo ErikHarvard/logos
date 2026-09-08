@@ -70,6 +70,66 @@ set -uo pipefail
 cd "$(dirname "$0")"
 ok=1
 
+# ── THE ORACLE IS RE-RUN, NOT REMEMBERED ────────────────────────────────────
+# ★ The header above is explicit that PK and sig[0] are "cross-checked against
+# wotsp_model.py, an independent Python implementation written BEFORE the LA
+# one" -- and until now that cross-check was a HAND TRANSCRIPTION nothing re-ran.
+# wotsp.la:212-213 and wotsp_prod.la:52-53 embed EXP_PK/EXP_SIG0 as CONSTANTS,
+# and each module checks its own computed values against them. So THE CONSTANT
+# IS THE ORACLE.
+#
+# The failure mode is not drift. If a transcription were ever wrong, the LA is
+# checked against a wrong authority, and the natural repair -- "make the
+# implementation agree with the expectation" -- BENDS THE LA TO THE ERROR while
+# every arm of this gate stays green. A wrong oracle does not announce itself;
+# it recruits the implementation.
+#
+# Both sides are EXTRACTED FROM THEIR SOURCES: the model by running it, the
+# constants by reading the two .la files. Neither is retyped here -- a third
+# copy in this gate would move the transcription problem, not close it. The
+# model emits BOTH parameter sets in one sub-second run, so this covers all
+# four constants (toy n=2 w=4 AND production n=32 w=16), including the prod
+# vectors the LA legs themselves only reach on the VM.
+#
+# ★ HARD-FAILS when python3 or the model is absent rather than skipping: a SKIP
+# would satisfy this check while asserting nothing, which is the defect class
+# the 2026-09-08 census documents (LA_COMPLETION.md, Tier 1).
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "FAIL  wotsp oracle: python3 absent — the model cannot be re-run, so the"
+    echo "      hand-transcribed EXP_PK/EXP_SIG0 constants are unverified. This"
+    echo "      FAILS rather than SKIPs: a skip would satisfy the check while"
+    echo "      asserting nothing."
+    exit 1
+fi
+for f in wotsp_model.py wotsp.la wotsp_prod.la; do
+    [ -f "$f" ] || { echo "FAIL  wotsp oracle: $f absent — a missing input is a broken checkout, not a reason to skip"; exit 1; }
+done
+
+WMODEL="$(python3 wotsp_model.py 2>&1)" || { echo "FAIL  wotsp oracle: wotsp_model.py did not run cleanly"; printf '%s\n' "$WMODEL"; exit 1; }
+wsec () {   # $1 = section marker, $2 = key -> that section's value
+    printf '%s\n' "$WMODEL" | awk -v want="$1" -v key="$2" '
+        /^=== WOTS\+/ { insec = ($0 ~ want) ? 1 : 0; next }
+        insec && $1 == key && $2 == "=" { print $3; exit }'
+}
+wla ()  { sed -n "s/^glyph $2  *= *\"\([0-9a-f]*\)\".*/\1/p" "$1"; }
+
+M_PK_T="$(wsec 'n=2 w=4'   PK)";            M_S0_T="$(wsec 'n=2 w=4'   'sig(m1)[0]')"
+M_PK_P="$(wsec 'n=32 w=16' PK)";            M_S0_P="$(wsec 'n=32 w=16' 'sig(m1)[0]')"
+L_PK_T="$(wla wotsp.la      EXP_PK)";       L_S0_T="$(wla wotsp.la      EXP_SIG0)"
+L_PK_P="$(wla wotsp_prod.la EXP_PK)";       L_S0_P="$(wla wotsp_prod.la EXP_SIG0)"
+
+# ★ An empty value on either side is a BROKEN EXTRACTION, not agreement: if a
+#   sed or the awk section-match stops matching, both sides go blank and
+#   "" = "" PASSES, reporting a verified oracle from two failures.
+for v in "$M_PK_T" "$M_S0_T" "$M_PK_P" "$M_S0_P" "$L_PK_T" "$L_S0_T" "$L_PK_P" "$L_S0_P"; do
+    [ -n "$v" ] || { echo "FAIL  wotsp oracle: an extraction came back EMPTY (model toy=[$M_PK_T/$M_S0_T] prod=[$M_PK_P/$M_S0_P]; la toy=[$L_PK_T/$L_S0_T] prod=[$L_PK_P/$L_S0_P]) — an empty comparison is not agreement"; exit 1; }
+done
+[ "$M_PK_T" = "$L_PK_T" ] || { echo "FAIL  wotsp oracle: n=2 w=4 model PK [$M_PK_T] != wotsp.la EXP_PK [$L_PK_T] — the transcribed constant does not match the independent implementation that produced it"; ok=0; }
+[ "$M_S0_T" = "$L_S0_T" ] || { echo "FAIL  wotsp oracle: n=2 w=4 model sig[0] [$M_S0_T] != wotsp.la EXP_SIG0 [$L_S0_T]"; ok=0; }
+[ "$M_PK_P" = "$L_PK_P" ] || { echo "FAIL  wotsp oracle: n=32 w=16 model PK [$M_PK_P] != wotsp_prod.la EXP_PK [$L_PK_P]"; ok=0; }
+[ "$M_S0_P" = "$L_S0_P" ] || { echo "FAIL  wotsp oracle: n=32 w=16 model sig[0] [$M_S0_P] != wotsp_prod.la EXP_SIG0 [$L_S0_P]"; ok=0; }
+[ "$ok" -eq 1 ] && echo "PASS  wotsp oracle: wotsp_model.py RE-RUN and all FOUR constants match their .la sources — n=2 w=4 PK=$M_PK_T sig0=$M_S0_T, n=32 w=16 PK=${M_PK_P:0:16}… sig0=${M_S0_P:0:16}… — derived from the independent model on every run, not remembered from a hand copy"
+
 E_SMALL="wotsp n=2 w=4: PK OK | sig OK | sig(m1)!=sig(m2) OK | genuine verifies OK | wrong-msg rejected OK | tampered-sig rejected OK | wrong-PK rejected OK"
 E_PROD="wotsp n=32 w=16: PK OK | sig OK | sig(m1)!=sig(m2) OK | genuine verifies OK | wrong-msg rejected OK | tampered-sig rejected OK | wrong-PK rejected OK"
 
