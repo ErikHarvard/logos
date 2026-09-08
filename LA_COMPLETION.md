@@ -471,6 +471,24 @@ every item below cites the ruling rather than inferring one.
 
 ## TIER 1 — ROOT CAUSES (fixing these prevents whole defect classes)
 
+- `[ ]` **`gate_srcdrift.py` can vanish and the build stays green** —
+  `build.sh:820-831` guards the whole drift check with
+  `if command -v python3 && [ -f gate_srcdrift.py ]; then … else echo "SKIP …"; fi`.
+  Delete the gate file, or run on a box without `python3`, and the build prints
+  a SKIP line and **continues at rc 0**, with the entire 290-SRC/live-pair check
+  across all 14 spec modules silently absent. Verified by running `:820-:831`
+  verbatim with the file removed: it printed the SKIP and `SECTION_RC=0`.
+  ★ This is the **exact** pattern the III-1 correction was written about, and
+  which `build.sh:405-411` cites in its own comment when hard-failing the
+  signature gates — "`if [ -f gate ]; then … else echo SKIP; fi` kept the build
+  green when the file was deleted." The signature layer was fixed; this
+  invocation was not. It is Door **iii** with a SKIP line as its alibi, and
+  under this project's own rule ("a SKIP must not satisfy a gate invocation") a
+  missing gate here is a broken checkout, not a configuration. Gate: make the
+  absence hard-fail, as the signature block does. Red path: delete
+  `gate_srcdrift.py` and assert the build exits non-zero — the arm that is green
+  today. *Tier 1: it is the instrument protecting every generated module, and it
+  is the one that can disappear without a sound.*
 - `[ ]` **The Codex's own integration gate is unimplemented** — `crit:compliance`
   (`CODEX_AUTOPOIETICUS.tex` :816-:833), the **Ontosyntactic Compliance
   Criterion**: *every* component integrated into LogOS must satisfy five
