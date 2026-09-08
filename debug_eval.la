@@ -1057,4 +1057,53 @@ glyph MAIN_META = SEQ(SEQ(
     print(AGREES_BUD(24)(SRC_MINI))))(
     print("--- meta: end ---"))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE))(MAIN_BUDGET))(MAIN_META)
+# ── DISPATCH COVERAGE — slice 14 ─────────────────────────────────────
+#   ★ THE DEFENCE THIS FILE RESTS ON IS A SAMPLE, AND NOTHING SAID SO.
+#   The header's whole argument is that a reproduced evaluator can DRIFT
+#   from the one it traces, and the answer is that DEBUG_EVAL and EVAL
+#   AGREE on every program tested. But 23 programs is a SAMPLE of the
+#   dispatch, not a cover of it: a branch no test program reaches could
+#   drift arbitrarily and all 23 would still agree. "We test 23 programs"
+#   and "those programs exercise every branch" are different claims, and
+#   only the first was ever established.
+#
+#   The tape makes the second one measurable — it holds every visited
+#   node, so the set of AST kinds it contains IS the set of dispatch
+#   branches that ran.
+glyph KIND_HAS = la s. la k. IF(STK_HAS(k)(s))(la _. "y")(la _. "n")
+
+glyph KIND_SET = la tape.
+    Z(la self. la t. la acc.
+        IF(ENV_MORE(t))(la _.
+            (la k.
+                IF(STK_HAS(k)(acc))(la _.
+                    self(ENV_TAIL(t))(acc)
+                )(la _.
+                    self(ENV_TAIL(t))(CONS(k)(acc))
+                )
+            )(AST_KIND(STOP_A(ENV_HEAD(t))))
+        )(la _. acc)
+    )(tape)(NIL)
+
+#   Rendered by MEMBERSHIP rather than by listing, so the answer does not
+#   depend on traversal order and reads the same way for every program.
+glyph SHOW_KINDS = la s.
+    concat(concat("VAR")(KIND_HAS(s)("VAR")))(
+    concat(concat(" LAM")(KIND_HAS(s)("LAM")))(
+    concat(concat(" APP")(KIND_HAS(s)("APP")))(
+    concat(" STR")(KIND_HAS(s)("STR")))))
+
+glyph COVER_OF = la src. SHOW_KINDS(KIND_SET(TAPE(PARSE_PROGRAM(src))))
+
+#   ★ THE SECOND LINE IS THE DISCRIMINATOR AND IS NOT DECORATION. A
+#   coverage measure that answered "all four" for everything would satisfy
+#   the first line and mean nothing. SRC_STR is a single string literal —
+#   one branch, three untouched — so it must report three n's. Without it,
+#   an always-yes measure passes.
+glyph MAIN_COVER = SEQ(SEQ(SEQ(
+    print("--- cover: which dispatch branches the suite actually runs ---"))(
+    print(concat("  SRC_STEP  ")(COVER_OF(SRC_STEP)))))(
+    print(concat("  SRC_STR   ")(COVER_OF(SRC_STR)))))(
+    print("--- cover: end ---"))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE))(MAIN_BUDGET))(MAIN_META))(MAIN_COVER)

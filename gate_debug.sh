@@ -709,29 +709,55 @@ else
     fi
 fi
 
-# ── 15. host == VM ─────────────────────────────────────────────────────────
+# ── 15. DISPATCH COVERAGE: is the agreement suite a COVER or a SAMPLE? ─────
+#   ★ THE DEFENCE THIS WHOLE FILE RESTS ON WAS NEVER SHOWN TO BE COMPLETE. The
+#   header's argument is that a reproduced evaluator can DRIFT, and the answer
+#   is that DEBUG_EVAL and EVAL AGREE on every program tested. But N programs
+#   is a SAMPLE of the dispatch, not a COVER of it: a branch no test program
+#   reaches could drift arbitrarily and every one of them would still agree.
+#   The tape holds every visited node, so the set of AST kinds in it IS the set
+#   of dispatch branches that actually ran.
+c_step=$(csec "cover: which dispatch" | sed -n 's/^  SRC_STEP  *//p')
+c_str=$(csec "cover: which dispatch" | sed -n 's/^  SRC_STR  *//p')
+if [ -z "$c_step" ] || [ -z "$c_str" ]; then
+    echo "FAIL  debug 15: the coverage section reported '$c_step' / '$c_str' — it did not run"; ok=0
+elif [ "$c_step" != "VARy LAMy APPy STRy" ]; then
+    echo "FAIL  debug 15: SRC_STEP covers '$c_step', expected all four branches — the suite's representative program no longer exercises the whole dispatch, so agreement over it is a sample of less than it was"; ok=0
+#   ★ THE SECOND LINE IS THE DISCRIMINATOR AND IS NOT ILLUSTRATION. A coverage
+#   measure that answered "all four" for everything satisfies the assertion
+#   above and means nothing. SRC_STR is a lone string literal — one branch,
+#   three untouched — so it MUST report three n's. Without this line an
+#   always-yes measure passes, which is the inert-control failure this gate has
+#   been catching in itself since slice 4.
+elif [ "$c_str" != "VARn LAMn APPn STRy" ]; then
+    echo "FAIL  debug 15: a single string literal covers '$c_str', expected 'VARn LAMn APPn STRy' — the coverage measure is not discriminating, so its all-four answer above carries no information"; ok=0
+else
+    echo "PASS  debug 15: the suite's dispatch coverage is measured, not assumed — SRC_STEP reaches all four branches ($c_step) and a lone string literal reaches exactly one ($c_str), so the measure discriminates"
+fi
+
+# ── 16. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 15: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 16: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 15: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 16: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 15: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 16: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 15: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 16: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 15: host and VM disagree"
+                echo "FAIL  debug 16: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

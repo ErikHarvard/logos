@@ -7607,6 +7607,29 @@ bash kernel/gate_with_ok.sh || exit 1   # WITH_OK host_image == metal_image, the
 # the first node. Silence is -1, where both comparisons are false for every
 # ordinal.
 #
+# Slice 13 points the debugger at an EVALUATOR, which is what this file's own
+# header ("the evaluator watching itself") and CLAUDE.md's Meta-Debug(Meta-Debug)
+# = Debug ask for. ★ What is GATED is one honest level below the literal claim,
+# and the reason is MEASURED: tracing eval.la's own RUN runs past 150 seconds on
+# the host before host==VM doubles it, because the budget bounds what is EMITTED
+# and not what is EXECUTED. The literal self-application lives in debug_meta.la,
+# run by hand and documented, as theourgia_*_live and sigil_live are. The gated
+# check asserts the INTERPRETING, not the answer: "AGREE str:9" is equally true
+# of tracing any program that computes 9, so it asserts a fixed point being tied
+# and a term selecting its handler. Slice 13 also gives debug_eval.la an export
+# list so the capstone IMPORTS the debugger rather than copying it, and the gate
+# exercises that import — a manual capstone depending on an export list is
+# exactly how a gate goes quietly dead.
+#
+# Slice 14 asks whether the defence above is a COVER or a SAMPLE. The argument
+# is that a reproduced evaluator can DRIFT and the answer is agreement across
+# every program tested — but N programs is a SAMPLE of the dispatch, and a
+# branch no program reaches could drift arbitrarily while all N still agree. The
+# tape holds every visited node, so the AST kinds in it ARE the branches that
+# ran. ★ The check's second line is the load-bearing one: a lone string literal
+# must report exactly one branch, because a measure answering "all four" for
+# everything satisfies the positive assertion and means nothing.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide
