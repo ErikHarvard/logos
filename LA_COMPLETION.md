@@ -733,6 +733,38 @@ every item below cites the ruling rather than inferring one.
   something to ENUMERATE, not assume** — an unreached condition and an absorbed
   perturbation are the same error. This one was caught only by grepping for *who
   constructs a `STRUCT`* rather than trusting that `SENSE` was the only constructor.
+  ★★ **C4's "EXTERNAL", RESOLVED FROM THE SOURCE TEXT — and it confirms the
+  84-module false-fail.** The operative definition is in the Codex's own C4
+  self-audit (`Being & Becoming.tex:6630`, verified verbatim), where the Codex
+  scores itself `✓`:
+
+  > **C4. Closure.** *Does anything external supply what this Codex lacks? Every
+  > concept is **derived internally** from ∃(∃) ≡ ∃. No external axioms are
+  > imported. No external authorities are cited as grounds. No external framework
+  > supplies the criterion. The Archē is its own peer.* ✓
+
+  ★ **The distinction is DERIVED INTERNALLY vs SUPPLIED EXTERNALLY — not "contains
+  no reference."** The Codex passes C4 while being saturated with internal
+  cross-reference, because internal derivation is not external supply. So
+  `CLOSURE = str_eq(dep)("")` over `dep = CONTAINS(src)("import(")` is **the wrong
+  test**: `import("stdlib.la")` names a module *of this framework, derived from the
+  same ground*. It is the LA analogue of an internal chapter reference, which the
+  source text scores `✓`.
+
+  **Operational C4 for a LogOS module**, from that definition:
+  - `import("X.la")` where `X.la` is **in the tree** → **INTERNAL** (derived within
+    the framework) — *not* a C4 failure. This is the 84 modules.
+  - a name that **resolves nowhere in the system** (an unbound reference) →
+    **EXTERNAL** — the system does not derive what it uses. *This* is C4's failure
+    mode, and every engine already halts loudly on it (`secd: unbound variable`),
+    so the red path exists and is reachable.
+  - a **host builtin** → the boundary case, and the project already rules on it:
+    *"the host is the physics"*. Substrate, not external supply — but it is the one
+    that deserves an explicit ruling rather than an inference.
+
+  **So the sweep's C4 becomes a resolvability check, not a substring check**, and
+  the item's original gate — *"fail the build on the first non-compliant one"* —
+  stops failing 57% of the tree for composing correctly.
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
