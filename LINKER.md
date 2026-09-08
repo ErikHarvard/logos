@@ -1150,14 +1150,70 @@ silently once a section index reaches double digits, patching the wrong byte and
 going green having tested nothing.
 
 **Latent, not hypothetical.** This layout sits near `0x401000` and
-`kernel/kernel.ld` at `0x100000`, so nothing trips it today. A higher-half kernel
-at `0xffffffff80000000` — the ordinary next step for an x86-64 kernel, and track
-D's direction — trips it immediately, and *before this slice it would have
-tripped it silently.*
+`kernel/kernel.ld` at `0x100000`, so nothing trips it today.
+
+⚠ **CORRECTED same day — the kernel justification I first gave was wrong, on two
+grounds I measured after track D pushed back.** (1) **`link.la` cannot reach the
+kernel at all**: zero of `kernel/`'s 76 shell scripts reference it — the string
+`link.la` does not occur anywhere under `kernel/` — every kernel build links with
+`ld -T kernel/kernel.ld`. (2) **The kernel is ALREADY higher-half**, and has been
+since HH1: `HIGH_BASE equ 0xFFFFFFFF80000000` at `kernel/boot.asm:141`, mapped
+`PML4[511] -> pdpt_high` at `boot.asm:238-244`. But that is a **runtime
+page-table alias**, not a link-time base — `kernel.ld` still links at `0x100000`
+and the ELF loads low, so **no >4 GB address is ever presented to a linker**. I
+inferred a direction from a plausible trajectory instead of reading the tree; the
+guard is right, the motivation I published for it was not.
 
 ⇒ Same shape as slice 15, one layer down. There the evidence that a gate
 discriminates was mistaken for evidence it runs. Here a **comment asserting a
 guard** was mistaken for the guard. In both cases the artifact that would have
 told the truth — the call sites, the runner list — was never consulted, because
 the prose read like it already had been.
+
+### ⬥ And the fix itself was incomplete — a THIRD address site (same day)
+
+Slice 16 found two places that compute a symbol's address, guarded both, and
+stopped. **There was a third, and it is the one that matters most: `SYMVAL`, the
+RELOCATION-APPLICATION path — the code that actually patches bytes.**
+
+A symbol **defined in the object that references it** never reaches the
+cross-object resolver, so `STADDR`'s guard never sees it. `SYMVAL`'s
+defined-symbol branch did `add(base)(SYM_VALUE(f)(ss)(i))` with no high-word
+check.
+
+**Measured against the commit that added the first two guards** (`6fde83d`): it
+links a GAS object whose global `greet` sits at `0x100000010` with **rc=0**,
+truncating silently. With the third guard: refused by name.
+
+**★ Reachable with ordinary compiler output, which is the whole point.** `nasm`
+always relocates against **SECTION symbols** (`.text + 0`, `.rodata + 0`), whose
+`st_value` is structurally `0` — so with nasm fixtures this case is
+*unconstructible*, and the existing gate could never have found it. `gcc`/GAS
+relocate against a **defined global by name** (`movq $greet, %rax` →
+`R_X86_64_32S` against `greet`; `gcc -c` on ordinary C gives `R_X86_64_32`
+against `gfun`). The gate's third case therefore uses **GAS, deliberately**.
+
+**⚠ And my first attempt to demonstrate this hole was an invalid test — recorded
+because it nearly became the finding.** I patched `msg` (a local in `.rodata`),
+saw the link succeed, and concluded `SYMVAL` had truncated it. It had not:
+`readelf -r` shows nasm relocated against `.rodata + 0`, so **`msg`'s value was
+never read at all** and the green run proved nothing. The rule this file already
+states for gates applies to a probe just as hard: *check what the instrument
+actually touches before believing what it reports.* One `readelf -r` would have —
+and eventually did — settle it.
+
+⇒ **This is slice 16's own thesis, turned on slice 16.** There, `FITS32` was
+wired and correct, and its correctness ended the audit before it reached the
+read-side hole. Here, `STADDR` and `SYMADDR` were real fixes at real sites, and
+**finding two ended the search before it reached the third**. The lesson is not
+"look harder": it is *grep for every reader of the field, and never for whether
+a guard exists* — the second question has an affirmative answer long before the
+field is actually safe.
+
+*Coverage, stated exactly:* a **global** symbol at or above 4 GB is refused on
+all three paths. A bare nasm `equ` above 4 GB becomes a **LOCAL `ABS`** symbol
+(`HIGH_L equ 0xFFFFFFFF80000000` → `LOCAL ABS`) — it is not refused, and it is
+not an address the linker ever uses; declaring it `global` makes it a real
+definition and it *is* refused. That asymmetry is deliberate and measured, not an
+oversight.
 

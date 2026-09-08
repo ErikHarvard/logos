@@ -183,6 +183,18 @@ glyph FITS32 = la v. AND(NOT(lt(v)(0)))(lt(v)(4294967296))
 #   a weak one. So route BOTH undefined and weak-defined symbols through
 #   `resolve` (strong-then-weak, globally); only a strong/local/section symbol
 #   uses its in-object address directly.
+#   ★ THE 32-BIT WINDOW, GUARDED ON THE THIRD ADDRESS SITE — added 2026-09-08,
+#   hours after STADDR and SYMADDR, because those two were not enough and
+#   MEASUREMENT said so. This is the RELOCATION-APPLICATION path: a defined
+#   local/section symbol never goes through the cross-object resolver, so
+#   STADDR's guard never sees it. A local symbol at 0x100000000 targeted by an
+#   R_X86_64_64 linked with rc=0 and its high word discarded.
+#   ★★ AND THIS IS THE VERY FAILURE THE FIRST FIX DESCRIBED. Two address sites
+#   were found, both were real, both were fixed — and finding them ENDED the
+#   search before it reached the third. A guard that is correct where it fires
+#   is the most effective way to stop an audit early; that is the same mechanism
+#   as FITS32 being wired and right while the read-side hole sat behind it.
+#   Grep for every reader of the field, not for whether A guard exists.
 glyph SYMVAL = la f. la ss. la va. la resolve. la i.
     IF(OR(SYM_IS_UNDEF(f)(ss)(i))(SYM_IS_WEAK(SYM_INFO(f)(ss)(i))))
       (la _. (la r.
@@ -196,7 +208,9 @@ glyph SYMVAL = la f. la ss. la va. la resolve. la i.
                IF(lt(base)(0))
                  (la _. error(CAT(CONS("link: symbol lives in a section this layout does not place: ")(
                                   CONS(SYMNAME(f)(ss)(i))(NIL)))))
-                 (la _. add(base)(SYM_VALUE(f)(ss)(i))))
+                 (la _. IF(int_eq(SYM_VHIGH(f)(ss)(i))(0))
+                          (la _. add(base)(SYM_VALUE(f)(ss)(i)))
+                          (la _. error(concat("link: symbol value above 4 GB (32-bit window): ")(SYMNAME(f)(ss)(i))))))
              (va(SYM_SHNDX(f)(ss)(i))))
 
 #   Apply every relocation of one object's .text, folding over the list so each

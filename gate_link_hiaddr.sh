@@ -95,5 +95,66 @@ else
     echo "PASS  link_hiaddr: a symbol at 4 GB is REFUSED by name, not silently truncated to its low word"
 fi
 
+# ── THE THIRD ADDRESS SITE: the RELOCATION-APPLICATION path. ────────────────
+#   ★ The two guards above were NOT enough, and only measurement said so. A
+#   symbol that is DEFINED in the object referencing it never reaches the
+#   cross-object resolver, so STADDR's guard never sees it; it goes through
+#   SYMVAL, which added base + SYM_VALUE with no high-word check. That is the
+#   path that actually PATCHES BYTES.
+#   ★★ Reachable with ORDINARY COMPILER OUTPUT, which is what makes it matter:
+#   nasm always relocates against SECTION symbols (st_value always 0, so the
+#   high word is structurally 0 and this can never fire), but gcc/GAS relocate
+#   against a DEFINED GLOBAL BY NAME — verified here, `movq $greet, %rax` emits
+#   R_X86_64_32S against `greet` itself. Measured against the commit that added
+#   the first two guards: it links this object rc=0, truncating silently.
+#   Hence GAS, not nasm, for this case — with nasm the case is unconstructible.
+if command -v gcc >/dev/null 2>&1; then
+    G=.hiaddrgate; rm -rf "$G"; mkdir -p "$G"
+    cat > "$G/sv.s" <<'ASM'
+        .globl _start
+        .globl greet
+        .text
+_start:
+        movq    $greet, %rax
+        movl    $60, %eax
+        xorl    %edi, %edi
+        syscall
+greet:
+        ret
+ASM
+    if gcc -c "$G/sv.s" -o link_in1.o 2>/dev/null; then
+        gidx=$(readelf -s -W link_in1.o | awk '$8=="greet" {sub(/:/,"",$1); print $1; exit}')
+        goff=$(readelf -S -W link_in1.o \
+               | awk '{for(i=1;i<=NF;i++) if($i==".symtab"){print $(i+3); exit}}')
+        if [ -n "$gidx" ] && [ -n "$goff" ]; then
+            printf '\001\000\000\000' | dd of=link_in1.o bs=1 \
+                seek=$(( 0x$goff + gidx * 24 + 12 )) conv=notrunc status=none
+            printf 'link_in1.o\n' > link_inputs.txt
+            ROUT=$(timeout 300 ./tiny_host link_reloc.la 2>&1)
+            rrc=$?
+            if [ "$rrc" -eq 0 ]; then
+                echo "FAIL  link_hiaddr reloc-path: link_reloc.la ACCEPTED (exit 0) a DEFINED"
+                echo "      GLOBAL at 0x100000010 — SYMVAL truncated the high word on the path"
+                echo "      that patches bytes. Got: $(printf '%s' "$ROUT" | tail -1)"
+                ok=0
+            elif printf '%s' "$ROUT" | grep -q 'symbol value above 4 GB'; then
+                echo "PASS  link_hiaddr reloc-path: a DEFINED GLOBAL at 4 GB is REFUSED by link_reloc.la (SYMVAL), not truncated"
+            else
+                echo "FAIL  link_hiaddr reloc-path: refused (rc=$rrc) but not with the 32-bit-window"
+                echo "      diagnostic — a refusal for another reason is not this guard firing:"
+                printf '%s\n' "$ROUT" | tail -2 | sed 's/^/        /'
+                ok=0
+            fi
+        else
+            echo "FAIL  link_hiaddr gate bug: could not locate greet/symtab in the GAS object"; ok=0
+        fi
+    else
+        echo "SKIP  link_hiaddr reloc-path: gcc cannot assemble the GAS fixture"
+    fi
+    rm -rf "$G"
+else
+    echo "SKIP  link_hiaddr reloc-path: gcc absent"
+fi
+
 rm -f link_in1.o link_in2.o
 [ "$ok" -eq 1 ] || exit 1
