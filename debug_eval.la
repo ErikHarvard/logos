@@ -208,62 +208,148 @@ glyph BRK_WHEN = la name. la val. la d. la ast. la env. la stk.
 #   — which is exactly what is wanted here: enter, reduce, then report
 #   the value. Writing the LEAVE line "after" the body in the source
 #   would not have ordered it; the binder does.
-glyph DEBUG_EVAL_BRK = la brk. Z(la self. la d. la ast. la env. la stk. la gl.
-    SEQ(ENTER(d)(ast))(
-    SEQ(IF(brk(d)(ast)(env)(stk))(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(
-    (la result.
-        SEQ(LEAVE(d)(ast)(result))(result)
-    )(
-        ast
-            # ── VAR(name) — local env, then glyph table, then builtins ──
-            (la name.
-                (la local.
-                    IF(IS_SOME(local))(la _.
-                        R_VAL(local)
-                    )(la _.
-                    (la found.
-                        IF(IS_SOME(found))(la _.
-                            self(add(d)(1))(R_VAL(found))(NIL)(CONS(name)(stk))(gl)
+# ── THE STATE THREADED THROUGH THE ONE DISPATCH — slice 6 ────────────
+#   ★ WHY THIS SLICE CHANGES THE EVALUATOR'S SHAPE, when 4 and 5 refused
+#   to. A stop CONDITION is a predicate: answerable from (d, ast, env,
+#   stk) at one node. "Where am I, resume from HERE" is not. An ordinal
+#   counts nodes ALREADY VISITED, so it flows left-to-right across
+#   siblings, while d and stk flow DOWNWARD — a downward parameter cannot
+#   count what its earlier siblings did. No predicate closes that gap,
+#   which is why slice 5 could only offer "the successive firings ARE the
+#   successive stops" instead of a real resume.
+#
+#   It is still ONE dispatch: DEBUG_EVAL_BRK is DEFINED from this one by
+#   taking FST, exactly as slice 1's tracer is defined from the
+#   parameterised one. A second evaluator carrying the ordinal would
+#   reintroduce the drift hazard this whole file exists to watch.
+#
+#   ★ AND AGREEMENT DOES NOT COVER THE NEW PART — measured, not assumed.
+#   Agreement compares the VALUE, which is FST, so a mis-threaded ordinal
+#   leaves it green. A red run before this slice went further: replacing
+#   DEBUG_EVAL with EVAL outright ALSO leaves check 1 green, and only the
+#   content checks (2-6) catch it. So the ordinal gets its own oracle —
+#   the printed trace. ENTER emits one line per node in visit order, so
+#   the k-th ENTER line IS node k, and the gate checks the ordinals a
+#   session reports against that independently produced sequence.
+#   eval.la keeps SOME/NONE PRIVATE — they are not on its export list, so
+#   the import mangles them away and only IS_SOME/R_VAL come through. The
+#   option is therefore rebuilt here from PAIR, in the SHAPE those two
+#   accessors expect (IS_SOME = FST, R_VAL = FST . SND), rather than
+#   reaching for a name the module deliberately does not offer.
+glyph OPT_NONE = PAIR(FALSE)("")
+glyph OPT_SOME = la v. PAIR(TRUE)(PAIR(v)(""))
+
+glyph ST_MK = la i. la f. PAIR(i)(f)
+glyph ST_I  = la st. FST(st)
+glyph ST_F  = la st. SND(st)
+
+#   A stop carries what the NEXT command needs — its ordinal, to resume
+#   after; its FRAME depth, which is the n0 a step command is relative to
+#   — plus a rendered line for the reader.
+glyph STOP_REC = la i. la d. la ast. la stk.
+    (la n.
+    (la head.
+    (la tail.
+        PAIR(i)(PAIR(n)(concat(head)(tail)))
+    )(concat(concat(" frame")(int_to_str(n)))(concat(" bt: ")(SHOW_STK(stk))))
+    )(concat(concat("#")(int_to_str(i)))(concat(" ")(AST_KIND(ast))))
+    )(STK_LEN(stk))
+glyph STOP_I = la r. FST(r)
+glyph STOP_N = la r. FST(SND(r))
+glyph STOP_S = la r. SND(SND(r))
+
+#   The FIRST match strictly after `after` is kept and later ones ignored:
+#   that is what makes it "the NEXT stop" rather than "a stop".
+glyph ST_FOUND = la after. la fired. la i. la d. la ast. la stk. la old.
+    IF(fired)(la _.
+        IF(IS_SOME(old))(la _. old)(la _.
+        IF(lt(after)(i))(la _. OPT_SOME(STOP_REC(i)(d)(ast)(stk)))(la _. old))
+    )(la _. old)
+
+#   One node visit: emit, decide, advance. `tr` silences the trace — a
+#   session runs the evaluation once per command, and printing the whole
+#   trace once per command would bury the stops it is reporting.
+glyph ST_VISIT = la tr. la after. la brk. la d. la ast. la env. la stk. la st.
+    (la i.
+    (la fired.
+        SEQ(IF(tr)(la _. ENTER(d)(ast))(la _. ""))(
+        SEQ(IF(fired)(la _. IF(tr)(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(la _. ""))(
+        ST_MK(add(i)(1))(ST_FOUND(after)(fired)(i)(d)(ast)(stk)(ST_F(st)))))
+    )(brk(d)(ast)(env)(stk))
+    )(ST_I(st))
+
+glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. la env. la stk. la gl.
+    (la st.
+        (la rp.
+            SEQ(IF(tr)(la _. LEAVE(d)(ast)(FST(rp)))(la _. ""))(rp)
+        )(
+            ast
+                # ── VAR(name) — local env, then glyph table, then builtins ──
+                (la name.
+                    (la local.
+                        IF(IS_SOME(local))(la _.
+                            PAIR(R_VAL(local))(st)
                         )(la _.
-                        IF(IS_BI_NAME(name))(la _.
-                            VAL_BI(name)
-                        )(la _.
-                            error(concat("debug_eval: unbound variable: ")(name))
-                        ))
-                    )(LIST_FIND(name)(gl)))
-                )(LIST_FIND(name)(env))
-            )
-            # ── LAM(param, body) — capture the environment ──
-            (la param. la body.
-                VAL_CLO(param)(body)(env)
-            )
-            # ── APP(func, arg) — dispatch on the function's VALUE ──
-            (la func. la arg.
-                (la fval.
-                    fval
-                        (la s.
-                            error(concat("debug_eval: cannot apply string: ")(s))
-                        )
-                        (la p. la b. la e.
-                            (la aval.
-                                self(add(d)(1))(b)(CONS(PAIR(p)(aval))(e))(CONS(p)(stk))(gl)
-                            )(self(add(d)(1))(arg)(env)(stk)(gl))
-                        )
-                        (la biname.
-                            APPLY_BI(biname)(self(add(d)(1))(arg)(env)(stk)(gl))
-                        )
-                        (la paname. la pv.
-                            APPLY_BI2(paname)(pv)(self(add(d)(1))(arg)(env)(stk)(gl))
-                        )
-                        (la n.
-                            error(concat("debug_eval: cannot apply integer: ")(int_to_str(n)))
-                        )
-                )(self(add(d)(1))(func)(env)(stk)(gl))
-            )
-            # ── STR(val) — a value already ──
-            (la val. VAL_STR(val))
-    )))
+                        (la g.
+                            IF(IS_SOME(g))(la _.
+                                self(st)(add(d)(1))(R_VAL(g))(NIL)(CONS(name)(stk))(gl)
+                            )(la _.
+                            IF(IS_BI_NAME(name))(la _.
+                                PAIR(VAL_BI(name))(st)
+                            )(la _.
+                                error(concat("debug_eval: unbound variable: ")(name))
+                            ))
+                        )(LIST_FIND(name)(gl)))
+                    )(LIST_FIND(name)(env))
+                )
+                # ── LAM(param, body) — capture the environment ──
+                (la param. la body.
+                    PAIR(VAL_CLO(param)(body)(env))(st)
+                )
+                # ── APP(func, arg) — state threads func, THEN arg, THEN body ──
+                #   ★ THE THREADING ORDER IS THE EVALUATION ORDER, and it is
+                #   written out rather than inferred because the VALUE cannot
+                #   reveal a mistake in it: feed the arg's state to the func
+                #   and the answer stays right while every ordinal from here
+                #   on is wrong. That is the case the trace oracle exists for.
+                (la func. la arg.
+                    (la rf.
+                        (la fval. la stf.
+                            fval
+                                (la s.
+                                    error(concat("debug_eval: cannot apply string: ")(s))
+                                )
+                                (la p. la b. la e.
+                                    (la ra.
+                                        self(SND(ra))(add(d)(1))(b)(CONS(PAIR(p)(FST(ra)))(e))(CONS(p)(stk))(gl)
+                                    )(self(stf)(add(d)(1))(arg)(env)(stk)(gl))
+                                )
+                                (la biname.
+                                    (la ra.
+                                        PAIR(APPLY_BI(biname)(FST(ra)))(SND(ra))
+                                    )(self(stf)(add(d)(1))(arg)(env)(stk)(gl))
+                                )
+                                (la paname. la pv.
+                                    (la ra.
+                                        PAIR(APPLY_BI2(paname)(pv)(FST(ra)))(SND(ra))
+                                    )(self(stf)(add(d)(1))(arg)(env)(stk)(gl))
+                                )
+                                (la n.
+                                    error(concat("debug_eval: cannot apply integer: ")(int_to_str(n)))
+                                )
+                        )(FST(rf))(SND(rf))
+                    )(self(st)(add(d)(1))(func)(env)(stk)(gl))
+                )
+                # ── STR(val) — a value already ──
+                (la val. PAIR(VAL_STR(val))(st))
+        )
+    )(ST_VISIT(tr)(after)(brk)(d)(ast)(env)(stk)(st0))
 )
+
+#   The slice 1-5 tracer, DEFINED from the threaded one rather than kept as
+#   a second copy: trace on, and the state discarded.
+glyph DEBUG_EVAL_BRK = la brk. la d. la ast. la env. la stk. la gl.
+    FST(DEBUG_EVAL_ST(TRUE)(sub(0)(1))(brk)(ST_MK(0)(OPT_NONE))(d)(ast)(env)(stk)(gl))
 
 # ── slice 1's tracer IS the parameterised one with no breakpoint ─────
 #   Defined by application, not by a second definition, so "tracing with
@@ -458,4 +544,67 @@ glyph MAIN_STEP = SEQ(SEQ(SEQ(SEQ(SEQ(
     print("--- step: OUT of frame 2, only once the frame is gone ---")))(
     print(AGREES_BRK(STEP_OUT(2))(SRC_STEP)))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP)
+# ── THE DRIVER — resume, and a session of commands ───────────────────
+#   FIND_STOP runs the evaluation QUIETLY and returns the first stop
+#   strictly after `after`. That is the resume slice 5 could not express:
+#   a predicate says WHERE a command may stop, `after` says from where.
+glyph FIND_STOP = la brk. la after. la gl.
+    (la g.
+        IF(IS_SOME(g))(la _.
+            ST_F(SND(DEBUG_EVAL_ST(FALSE)(after)(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
+        )(la _.
+            error("debug_eval: no glyph: MAIN")
+        )
+    )(LIST_FIND("MAIN")(gl))
+
+#   ★ A SESSION IS A FOLD, AND SLICE 5 IS WHY IT CAN BE. Each command is
+#   already a function from a frame depth to a predicate — that is the one
+#   shape STEP_INTO/OVER/OUT were given, including STEP_INTO's unused n0 —
+#   so the list of commands needs no wrapper and no dispatch. The fold
+#   carries the two things a resume needs: `after`, the ordinal last
+#   stopped at, and `n0`, the FRAME depth there, which is what the next
+#   step command is relative to. That is the whole difference between a
+#   stop condition and a debugger: the condition is now computed FROM
+#   where you are standing.
+glyph CMD_RUNTO = la name. la n0. BRK_VAR(name)
+
+glyph SESSION = la cmds. la gl.
+    Z(la self. la cs. la after. la n0.
+        IF(ENV_MORE(cs))(la _.
+            (la stop.
+                IF(IS_SOME(stop))(la _.
+                    (la r.
+                        SEQ(print(concat("  stop ")(STOP_S(r))))(
+                        self(ENV_TAIL(cs))(STOP_I(r))(STOP_N(r)))
+                    )(R_VAL(stop))
+                )(la _.
+                    print("  (no further stop -- the run completed)")
+                )
+            )(FIND_STOP(ENV_HEAD(cs)(n0))(after)(gl))
+        )(la _.
+            print("  -- session end --")
+        )
+    )(cmds)(sub(0)(1))(1)
+
+glyph RUN_SESSION = la cmds. la src. SESSION(cmds)(PARSE_PROGRAM(src))
+
+#   Four sessions over SRC_STEP. The middle TWO are the point: identical
+#   first command, one differing second command, and they must land in
+#   DIFFERENT places — INTO inside G (frame 3), OVER past it (frame 2).
+#   A driver that ignored the command would give the same answer twice.
+glyph SESS_ORACLE = CONS(STEP_INTO)(CONS(STEP_INTO)(CONS(STEP_INTO)(CONS(STEP_INTO)(NIL))))
+glyph SESS_IN     = CONS(CMD_RUNTO("G"))(CONS(STEP_INTO)(CONS(STEP_OUT)(NIL)))
+glyph SESS_OVER   = CONS(CMD_RUNTO("G"))(CONS(STEP_OVER)(NIL))
+glyph SESS_END    = CONS(CMD_RUNTO("z"))(CONS(STEP_OUT)(NIL))
+
+glyph MAIN_DRIVE = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(
+    print("--- drive: INTO x4 from the start, the ordinal oracle ---"))(
+    RUN_SESSION(SESS_ORACLE)(SRC_STEP)))(
+    print("--- drive: run to G, then INTO, then OUT ---")))(
+    RUN_SESSION(SESS_IN)(SRC_STEP)))(
+    print("--- drive: run to G, then OVER, same start one command differs ---")))(
+    RUN_SESSION(SESS_OVER)(SRC_STEP)))(
+    print("--- drive: run to z, then OUT, which runs off the end ---")))(
+    RUN_SESSION(SESS_END)(SRC_STEP))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE)

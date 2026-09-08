@@ -4865,6 +4865,18 @@ bash kernel/gate_k5b2.sh || exit 1
 # look at an argument of the expression you are standing on — the two differ
 # on the test program (7 against 8) and the gate pins them apart by count.
 #
+# Slice 6 is the DRIVER, and it is the first slice to change the evaluator's
+# shape rather than only add a predicate — because it has to. A stop condition
+# is answerable at one node; "where am I, resume from HERE" needs an ordinal,
+# which counts nodes already visited and so flows ACROSS siblings, where depth
+# and stack flow downward. So the dispatch threads a state and returns
+# PAIR(value)(state), with the old tracer DEFINED from it by taking FST — still
+# one dispatch. Note what that costs: the agreement invariant compares the
+# VALUE, so it cannot see a mis-threaded ordinal at all. Measured, not assumed —
+# a red run showed check 1 stays green even when DEBUG_EVAL is replaced by EVAL
+# outright, and only the content checks catch that. The ordinal therefore gets
+# its own oracle, the printed trace, whose k-th ENTER line is node k.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide

@@ -336,29 +336,92 @@ else
     echo "PASS  debug 6: stepping selects strictly nested stop sets (into $s_into, over $s_over, out $s_out) — step-over never enters a call, step-out never stops inside the frame it leaves, and each is the previous one restricted by FRAME depth (7 here, where node depth would give 8)"
 fi
 
-# ── 7. host == VM ──────────────────────────────────────────────────────────
+# ── 7. THE DRIVER: resume, and a session where the COMMAND decides ─────────
+#   Slice 5 gave stop CONDITIONS; a condition cannot say "resume from where
+#   I am". Slice 6 threads an ordinal so it can, and a session is a fold
+#   carrying (after, frame-depth). The two middle sessions are the assertion:
+#   IDENTICAL first command, ONE differing second command. If the driver
+#   ignored the command, or restarted from the beginning each time, both
+#   would report the same thing.
+ords()   { printf '%s\n' "$1" | sed -n 's/^  stop #\([0-9]*\) .*/\1/p'   | tr '\n' ' ' | sed 's/ $//'; }
+kinds()  { printf '%s\n' "$1" | sed -n 's/^  stop #[0-9]* \([A-Z]*\) .*/\1/p' | tr '\n' ' ' | sed 's/ $//'; }
+frames() { printf '%s\n' "$1" | sed -n 's/^  stop #[0-9]* [A-Z]* frame\([0-9]*\) .*/\1/p' | tr '\n' ' ' | sed 's/ $//'; }
+d_or=$(csec "drive: INTO x4")
+d_in=$(csec "drive: run to G, then INTO")
+d_ov=$(csec "drive: run to G, then OVER")
+d_en=$(csec "drive: run to z")
+o_or=$(ords "$d_or"); k_or=$(kinds "$d_or"); f_or=$(frames "$d_or")
+o_in=$(ords "$d_in"); f_in=$(frames "$d_in")
+o_ov=$(ords "$d_ov"); f_ov=$(frames "$d_ov")
+#   ★ THE ORDINAL'S ORACLE IS THE TRACE, NOT THE DRIVER'S OWN ARITHMETIC.
+#   Agreement compares the VALUE (FST), so a mis-threaded counter leaves it
+#   green — measured, not assumed: a red run showed check 1 stays green even
+#   when DEBUG_EVAL is replaced by EVAL outright. ENTER emits one line per
+#   node in visit order, so the k-th ENTER line IS node k. Taking the kinds
+#   from the traced run and requiring the session's first four stops to match
+#   checks the counter against something that did not compute it.
+trace_k=$(csec "step: INTO" | sed -n 's/^ *-> \([A-Z]*\)$/\1/p' | head -4 | tr '\n' ' ' | sed 's/ $//')
+in2=$(printf '%s\n' "$o_in" | awk '{print $2}')
+ov2=$(printf '%s\n' "$o_ov" | awk '{print $2}')
+mono=1; prev=-1
+for x in $o_in; do [ "$x" -gt "$prev" ] || mono=0; prev=$x; done
+if [ -z "$o_or" ] || [ -z "$o_in" ] || [ -z "$o_ov" ]; then
+    echo "FAIL  debug 7: a session reported no stops at all (oracle='$o_or' into='$o_in' over='$o_ov') — nothing below can mean anything"; ok=0
+#   ★ MONOTONIC FIRST, THEN DIVERGENCE, THEN THE EXHAUSTED PATH — and this
+#   order was established by red runs, not by taste. With the exhausted-path
+#   check first, BOTH the restart defect and the ignored-command defect
+#   reported "the exhausted path is not being exercised": true, but a
+#   consequence rather than the cause, and it named neither bug. A restart
+#   makes ordinals repeat, so monotonic catches it and says so; an ignored
+#   command makes the two sessions agree, so divergence catches that.
+elif [ "$mono" -ne 1 ]; then
+    echo "FAIL  debug 7: session ordinals '$o_in' are not strictly increasing — the driver is not resuming from the last stop, it is restarting"; ok=0
+elif [ "$in2" = "$ov2" ]; then
+    echo "FAIL  debug 7: after the SAME first command, step-into and step-over both stopped at #$in2 — the command is not deciding anything, so this is not a driver"; ok=0
+elif ! printf '%s\n' "$d_en" | grep -q 'no further stop'; then
+    echo "FAIL  debug 7: the run-off-the-end session never reported 'no further stop' — the exhausted path is not being exercised"; ok=0
+elif [ "$k_or" != "$trace_k" ]; then
+    echo "FAIL  debug 7: session kinds '$k_or' but the traced visit order begins '$trace_k' — the threaded ordinal disagrees with the trace, so the state is mis-threaded"; ok=0
+elif [ "$o_or" != "0 1 2 3" ]; then
+    echo "FAIL  debug 7: four step-intos from the start gave ordinals '$o_or', expected '0 1 2 3'"; ok=0
+#   ★ THE ORACLE SESSION IS WHERE FRAME DEPTH AND NODE DEPTH DIVERGE, so its
+#   frames are asserted and the other sessions' are not enough. Reporting `d`
+#   in place of STK_LEN was INERT against every other assertion here: at #5/#6/#7
+#   the two numbers coincide (2/3/2), so the substitution changed nothing. Across
+#   these four stops they do not — frames are 1 1 2 1 where depths are 0 1 2 1.
+elif [ "$f_or" != "1 1 2 1" ]; then
+    echo "FAIL  debug 7: the oracle session reported frames '$f_or', expected '1 1 2 1' — a stop is reporting NODE depth where it must report FRAME depth, which is the number the next step command is relative to"; ok=0
+elif [ "$o_in" != "5 6 7" ] || [ "$f_in" != "2 3 2" ]; then
+    echo "FAIL  debug 7: run-to-G/into/out gave ordinals '$o_in' frames '$f_in', expected '5 6 7' / '2 3 2'"; ok=0
+elif [ "$o_ov" != "5 7" ] || [ "$f_ov" != "2 2" ]; then
+    echo "FAIL  debug 7: run-to-G/over gave ordinals '$o_ov' frames '$f_ov', expected '5 7' / '2 2' — over must SKIP #6 inside G"; ok=0
+else
+    echo "PASS  debug 7: the driver resumes and the command decides — from the same stop #5, into descends to #6 (frame 3, inside G) and over skips it to #7 (frame 2); ordinals strictly increase, match the traced visit order, and the exhausted run reports no further stop"
+fi
+
+# ── 8. host == VM ──────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 7: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 8: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 7: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 8: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 7: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 8: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 7: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 8: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 7: host and VM disagree"
+                echo "FAIL  debug 8: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that
