@@ -2237,7 +2237,21 @@ PYPP2
     #       (`dw gdt_end - gdt64 - 1` = ONE word) vs a comma list (`dw 1, 2` =
     #       TWO). RED-PATH PROVEN against a52cf39^: the old tokenizer emits 37
     #       bytes (16, then -1) where nasm and the fixed code emit 35.
-    for prog in asm_test_sect asm_test_memlbl asm_test_expr asm_test_expr2 asm_test_ctrlseg asm_test_expr3 asm_test_equ2 asm_test_local asm_test_far asm_test_movlbl asm_test_macro asm_test_comma; do
+    #       asm_test_bits64 is the NEXT instance of the same pattern: 430b2a7
+    #       ("64-bit bitwise operators — the GDT descriptor bug") added the
+    #       fixture and never wired it, so it sat as coverage nothing ran.
+    #       RED-PATH PROVEN against 430b2a7^: the broken assembler emits
+    #       0x0000000000000000 where nasm emits 0x0020980000000000 -- three of
+    #       the five dq values silently ZERO, same 40-byte length, so only a
+    #       byte comparison sees it. A zeroed GDT entry is a NULL descriptor: it
+    #       assembles clean and faults when the CPU loads it.
+    #       ★ AND IT DISCRIMINATES, which is why it is not redundant with the
+    #       dq/dd/dw coverage already here: under that SAME broken asm.la,
+    #       asm_test_data and asm_test_comma both stay byte-identical to nasm.
+    #       The defect is in |/&/^ over shifts past bit 31, and this is the only
+    #       fixture that combines them. (Perturbation proved non-absorbed: the
+    #       emitted artifact's sha256 changes, so the gate was really asked.)
+    for prog in asm_test_sect asm_test_memlbl asm_test_expr asm_test_expr2 asm_test_ctrlseg asm_test_expr3 asm_test_equ2 asm_test_local asm_test_far asm_test_movlbl asm_test_macro asm_test_comma asm_test_bits64; do
         rm -f asm_out.bin .asmgate/nasm_$prog.bin
         cp $prog.asm asm_in.asm
         ./tiny_host asm.la >.asmgate/$prog.out 2>&1 \
