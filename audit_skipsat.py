@@ -234,6 +234,7 @@ def gates_with_skip_paths(build, root):
 
 
 ABORT = re.compile(r'^\s*(?:.*\|\|\s*)?exit\s+1\b')
+PASSLINE = re.compile(r'echo\s+"PASS')
 
 
 def invocation_sites(path):
@@ -424,6 +425,24 @@ def main():
             print(f"    UNREACHED  build.sh:{l:<5} {g}")
         if not after:
             print("    (none — the abort point is at or after the last invocation)")
+        # ★ WHY A HIGH PASS COUNT PROVES ALMOST NOTHING ABOUT GATES (track A,
+        #   2026-09-08). Their run reported 129 PASS with only FOUR gate
+        #   invocations executed: the PASS count is dominated by INLINE checks in
+        #   build.sh, not by gate scripts, and the gate invocations are
+        #   BACK-LOADED. So the two numbers are near-independent, and quoting the
+        #   PASS total says little about how much of the gate suite ran.
+        code = strip_comments(open(a.build, encoding='utf-8',
+                                   errors='replace').read().split('\n'))
+        passes = [i + 1 for i, l in enumerate(code) if l and PASSLINE.search(l)]
+        pb = [n for n in passes if n <= line]
+        print(f"\n  ── WHY A PASS TOTAL DOES NOT MEASURE THIS ──")
+        print(f"    inline PASS lines reached : {len(pb)} of {len(passes)}")
+        print(f"    gate invocations reached  : {len(before)} of {tot}")
+        if passes and tot:
+            print(f"    A run aborting here can report ~{len(pb)} PASS while only "
+                  f"{len(before)} gate invocation(s) ran.")
+            print(f"    The two counts are near-independent: PASS is dominated by "
+                  f"inline checks,\n    and gate invocations are back-loaded.")
         print(f"\n  {len(before)} reached, {len(after)} unreached, {tot} total.")
         return 0
 
