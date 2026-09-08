@@ -57,8 +57,12 @@ done
 [ -n "$LAPID" ] || { echo "FAIL  gate_rss: workload process not found (exited too fast?)"; exit 1; }
 
 # heapscope --peak samples heap until the workload exits, then gates on peak.
-python3 "$HEAPSCOPE" "$LAPID" --peak --interval 2 --max-heap-mib "$BOUND_MIB"
-RC=$?
+# `set -e` is on, so a bare call here ABORTED THE SCRIPT the moment heapscope
+# exited non-zero -- `RC=$?` never ran and the whole verdict block below was
+# dead code on every failing path.  The gate could print its PASS line and no
+# other.  `|| RC=$?` keeps the status without tripping `set -e`.
+RC=0
+python3 "$HEAPSCOPE" "$LAPID" --peak --interval 2 --max-heap-mib "$BOUND_MIB" || RC=$?
 
 # heapscope prints PASS/FAIL + the number; mirror its verdict as the gate's.
 if [ "$RC" = 0 ]; then
