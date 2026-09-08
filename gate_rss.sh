@@ -29,7 +29,11 @@ for f in "$LOGOS/tiny_host" "$LOGOS/native_codegen3.la" "$HEAPSCOPE"; do
 done
 
 WD=$(mktemp -d)
-trap 'kill "$LAPID" 2>/dev/null; rm -rf "$WD"' EXIT
+# `kill` fails on the PASS path (the workload has already exited), and under
+# `set -e` that aborted the trap: the script exited 1 on a PASS and never
+# reached the `rm`, leaking the scratch dir.  `|| :` keeps the trap alive so
+# the exit status stays the verdict's and the cleanup actually runs.
+trap 'kill "$LAPID" 2>/dev/null || :; rm -rf "$WD"' EXIT
 cp "$LOGOS/tiny_host" "$LOGOS/native_codegen3.la" "$WD/"
 
 cat > "$WD/native_input.la" <<LA
