@@ -2251,7 +2251,23 @@ PYPP2
     #       The defect is in |/&/^ over shifts past bit 31, and this is the only
     #       fixture that combines them. (Perturbation proved non-absorbed: the
     #       emitted artifact's sha256 changes, so the gate was really asked.)
-    for prog in asm_test_sect asm_test_memlbl asm_test_expr asm_test_expr2 asm_test_ctrlseg asm_test_expr3 asm_test_equ2 asm_test_local asm_test_far asm_test_movlbl asm_test_macro asm_test_comma asm_test_bits64; do
+    #       asm_test_sibnb is the LAST of this family and the only one whose
+    #       fixture did not already exist: `[index*scale]` with NO base register.
+    #       Found by probing asm.la's own HONEST SCOPE claims rather than reading
+    #       them (the block was stale — see 0c161b5). Every baseless form emitted
+    #       the SAME 8 bytes, SIB 0x25 (index=none), silently dropping the index
+    #       register AND the scale, so `mov rax,[rcx*4]` assembled at the correct
+    #       length as `mov rax,[0x0]` — the bits64 shape exactly: clean assembly,
+    #       right length, wrong at run time, visible only to cmp.
+    #       RED-PATH PROVEN against the assembler at 0c161b5: this fixture emits
+    #       121 bytes where nasm emits 99, 58 bytes differing. Not a subtle red.
+    #       ★ IT ALSO CARRIES ITS OWN CONTROLS. The last four lines are forms
+    #       that were ALREADY correct ([rbx+rcx*4], [rbx+rcx*4+8], [rsi+r8],
+    #       [rcx]). A fixture holding only the red case cannot distinguish a fix
+    #       from a change that breaks everything; the working neighbours are
+    #       asserted in the same file so the gate fails for the defect it names
+    #       and passes for everything else.
+    for prog in asm_test_sect asm_test_memlbl asm_test_expr asm_test_expr2 asm_test_ctrlseg asm_test_expr3 asm_test_equ2 asm_test_local asm_test_far asm_test_movlbl asm_test_macro asm_test_comma asm_test_bits64 asm_test_sibnb; do
         rm -f asm_out.bin .asmgate/nasm_$prog.bin
         cp $prog.asm asm_in.asm
         ./tiny_host asm.la >.asmgate/$prog.out 2>&1 \
