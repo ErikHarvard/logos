@@ -1182,13 +1182,24 @@ is both this tree's `kernel/*.sh` count *and* the count of D's kernel scripts
 invoking `ld -T`, two unrelated quantities in two trees landing on one number,
 so that agreement would have read as corroboration and ended the check.
 
-⚠ **I amplified that instance before measuring it, and it does not survive.** On
-committed state D has **75** such scripts, not 76 — and the literal pattern
-`ld -T` matches **zero** of them, because the actual form is `ld -n -T`
-(`ld -n -T kernel/kernel.ld …`). A 76 would have to come from D's uncommitted
-working copy, which I cannot read; so the collision is **unconfirmed, not
-disproven** — and its unconfirmability is the same artifact-pinning problem in a
-third costume.
+⚠ **I amplified that instance before measuring it, and it does not survive —
+there was never a collision.** On committed state D has **75** such scripts, not
+76, and the literal pattern `ld -T` matches **zero** of them (the actual form is
+`ld -n -T kernel/kernel.ld …`).
+
+**The 76 is now fully explained, and it is a glob defect**, not an uncommitted
+working copy as I first supposed:
+
+    git grep -l 'ld .*-T' track-d -- 'kernel/*.sh'   ->  75
+    git grep -l 'ld .*-T' track-d -- kernel/         ->  76
+    the extra match: kernel/SELFREPAIR_5s_DESIGN.md  ->  a PROSE DESIGN DOCUMENT
+
+A markdown file was counted as a linker invocation. So the number that made the
+coincidence was never measuring linker invocations at all — which is the
+**mention-vs-invocation** distinction this file already turns on, and the reason
+`gate_seam_asm_link.sh:25` and `night3.sh:52` had to be read rather than counted
+(slice 15). Prose is where an unwitnessed claim hides, in both directions: it
+inflates a count here, and it asserted an absent guard in slice 16.
 
 **The rule stands without it.** It is carried by the four instances below, each
 measured, and did not need a coincidence to support it. A vivid instance is the
