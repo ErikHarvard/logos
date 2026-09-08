@@ -7571,6 +7571,18 @@ bash kernel/gate_with_ok.sh || exit 1   # WITH_OK host_image == metal_image, the
 # that is NOT an x node and where x is not in scope (it went out of scope), and
 # that stop is the one observation no positional predicate can produce.
 #
+# Slice 10 adds REVERSE STEPPING, which is nearly free here and expensive
+# everywhere else. A conventional debugger stepping backwards needs
+# record/replay, because re-running a process does not reproduce it. This
+# evaluator is a pure function of its input, so re-execution reproduces the
+# identical trace node for node: history can be RECOMPUTED rather than stored,
+# and "step back" is the same deterministic walk keeping the LAST match before
+# a point instead of the first after it. The recorder became a parameter, so
+# there is still ONE dispatch. Note which assertion carries it: NOT the round
+# trip, which passes even if the backward search keeps the first match (from #1
+# the first and last qualifying nodes below it coincide), but a step back from
+# BEYOND the end, where keep-first and keep-last finally differ.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide

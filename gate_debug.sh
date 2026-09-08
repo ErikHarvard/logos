@@ -556,29 +556,59 @@ else
     echo "PASS  debug 10: watchpoints stop on VALUE — $w_n transitions '$w_vals', including one at frame 1 (bt MAIN) where x is not in scope and no positional predicate could stop; and a never-in-scope watch completes instead of halting"
 fi
 
-# ── 11. host == VM ─────────────────────────────────────────────────────────
+# ── 11. REVERSE STEPPING: history recomputed, not stored ───────────────────
+#   A conventional debugger stepping backwards needs record/replay, because
+#   re-running a process does not reproduce it. This evaluator is a pure
+#   function of its input, so re-execution reproduces the identical trace node
+#   for node — history can be RECOMPUTED rather than stored, and "step back"
+#   is the same deterministic walk keeping the LAST match before a point
+#   instead of the first match after it.
+b_f1=$(csec "back: two steps forward" | sed -n 's/^  fwd1 #\([0-9]*\) .*/\1/p')
+b_f2=$(csec "back: two steps forward" | sed -n 's/^  fwd2 #\([0-9]*\) .*/\1/p')
+b_bk=$(csec "back: two steps forward" | sed -n 's/^  back #\([0-9]*\) .*/\1/p')
+b_lt=$(csec "back: two steps forward" | sed -n 's/^  last #\([0-9]*\) .*/\1/p')
+if [ -z "$b_f1" ] || [ -z "$b_f2" ] || [ -z "$b_bk" ] || [ -z "$b_lt" ]; then
+    echo "FAIL  debug 11: the reverse-step section reported '$b_f1'/'$b_f2'/'$b_bk'/'$b_lt' — a search returned nothing, so nothing below means anything"; ok=0
+#   ★ THE DISCRIMINATOR IS `last`, NOT THE ROUND TRIP. A REC_LAST that had
+#   quietly kept the FIRST match below the bound still passes the round trip —
+#   stepping back from #1 lands on #0 under either rule, because #0 is both
+#   the first and the last qualifying node below 1. Only a search from BEYOND
+#   the end separates them: keep-last gives the final qualifying node, keep-
+#   first gives #0 again. Asserting the round trip alone would accept a
+#   backward search that never looked backwards.
+elif [ "$b_lt" = "$b_f1" ]; then
+    echo "FAIL  debug 11: stepping back from beyond the end gave #$b_lt, the same as the FIRST forward stop — the backward search is keeping the first match, not the last, and the round trip cannot tell the difference"; ok=0
+elif [ "$b_bk" != "$b_f1" ]; then
+    echo "FAIL  debug 11: forward to #$b_f1 then #$b_f2, but stepping back gave #$b_bk — the round trip does not return to where it started"; ok=0
+elif [ "$b_f1" != "0" ] || [ "$b_f2" != "1" ] || [ "$b_lt" != "7" ]; then
+    echo "FAIL  debug 11: reverse-step ordinals were fwd1=$b_f1 fwd2=$b_f2 last=$b_lt, expected 0/1/7"; ok=0
+else
+    echo "PASS  debug 11: reverse stepping recomputes history — forward #$b_f1 then #$b_f2, back returns to #$b_bk, and a step back from beyond the end reaches #$b_lt (the LAST qualifying node, which the round trip alone could not distinguish from the first)"
+fi
+
+# ── 12. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 11: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 12: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 11: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 12: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 11: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 12: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 11: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 12: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 11: host and VM disagree"
+                echo "FAIL  debug 12: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

@@ -267,21 +267,34 @@ glyph STOP_E = la r. SND(SND(SND(r)))
 
 #   The FIRST match strictly after `after` is kept and later ones ignored:
 #   that is what makes it "the NEXT stop" rather than "a stop".
-glyph ST_FOUND = la after. la fired. la i. la d. la ast. la env. la stk. la old.
+#   ★ SLICE 10 MAKES THE RECORDER PLUGGABLE, which is the whole mechanism of
+#   reverse stepping. Going FORWARD keeps the FIRST match after a point.
+#   Going BACKWARD keeps the LAST match before one — the same walk, the same
+#   dispatch, a different rule for which match survives. Passing the recorder
+#   in rather than adding a second traversal keeps the one-dispatch discipline
+#   this file has held since slice 1.
+glyph REC_FIRST = la after. la fired. la i. la d. la ast. la env. la stk. la old.
     IF(fired)(la _.
         IF(IS_SOME(old))(la _. old)(la _.
         IF(lt(after)(i))(la _. OPT_SOME(STOP_REC(i)(d)(ast)(env)(stk)))(la _. old))
     )(la _. old)
 
+#   Keep OVERWRITING while below the bound, so what survives the walk is the
+#   last qualifying node — the stop immediately before where you stand.
+glyph REC_LAST = la before. la fired. la i. la d. la ast. la env. la stk. la old.
+    IF(fired)(la _.
+        IF(lt(i)(before))(la _. OPT_SOME(STOP_REC(i)(d)(ast)(env)(stk)))(la _. old)
+    )(la _. old)
+
 #   One node visit: emit, decide, advance. `tr` silences the trace — a
 #   session runs the evaluation once per command, and printing the whole
 #   trace once per command would bury the stops it is reporting.
-glyph ST_VISIT = la tr. la after. la brk. la d. la ast. la env. la stk. la st.
+glyph ST_VISIT = la tr. la rec. la brk. la d. la ast. la env. la stk. la st.
     (la i.
     (la fired.
         SEQ(IF(tr)(la _. ENTER(d)(ast))(la _. ""))(
         SEQ(IF(fired)(la _. IF(tr)(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(la _. ""))(
-        ST_MK(add(i)(1))(ST_FOUND(after)(fired)(i)(d)(ast)(env)(stk)(ST_F(st)))))
+        ST_MK(add(i)(1))(rec(fired)(i)(d)(ast)(env)(stk)(ST_F(st)))))
     )(brk(d)(ast)(env)(stk))
     )(ST_I(st))
 
@@ -310,7 +323,7 @@ glyph FAULT = la msg. la i. la d. la ast. la env. la stk.
     SEQ(print(concat("!! FAULT env: ")(SHOW_ENV(env))))(
     error(msg))))
 
-glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. la env. la stk. la gl.
+glyph DEBUG_EVAL_ST = la tr. la rec. la brk. Z(la self. la st0. la d. la ast. la env. la stk. la gl.
     (la st.
         (la rp.
             SEQ(IF(tr)(la _. LEAVE(d)(ast)(FST(rp)))(la _. ""))(rp)
@@ -375,13 +388,13 @@ glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. 
                 # ── STR(val) — a value already ──
                 (la val. PAIR(VAL_STR(val))(st))
         )
-    )(ST_VISIT(tr)(after)(brk)(d)(ast)(env)(stk)(st0))
+    )(ST_VISIT(tr)(rec)(brk)(d)(ast)(env)(stk)(st0))
 )
 
 #   The slice 1-5 tracer, DEFINED from the threaded one rather than kept as
 #   a second copy: trace on, and the state discarded.
 glyph DEBUG_EVAL_BRK = la brk. la d. la ast. la env. la stk. la gl.
-    FST(DEBUG_EVAL_ST(TRUE)(sub(0)(1))(brk)(ST_MK(0)(OPT_NONE))(d)(ast)(env)(stk)(gl))
+    FST(DEBUG_EVAL_ST(TRUE)(REC_FIRST(sub(0)(1)))(brk)(ST_MK(0)(OPT_NONE))(d)(ast)(env)(stk)(gl))
 
 # ── slice 1's tracer IS the parameterised one with no breakpoint ─────
 #   Defined by application, not by a second definition, so "tracing with
@@ -583,7 +596,7 @@ glyph MAIN_STEP = SEQ(SEQ(SEQ(SEQ(SEQ(
 glyph FIND_STOP = la brk. la after. la gl.
     (la g.
         IF(IS_SOME(g))(la _.
-            ST_F(SND(DEBUG_EVAL_ST(FALSE)(after)(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
+            ST_F(SND(DEBUG_EVAL_ST(FALSE)(REC_FIRST(after))(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
         )(la _.
             error("debug_eval: no glyph: MAIN")
         )
@@ -794,4 +807,49 @@ glyph MAIN_WATCH = SEQ(SEQ(SEQ(SEQ(
     RUN_WATCH("nosuchvar")(3)(SRC_TWO)))(
     print("--- watch: end ---"))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH)
+# ── REVERSE STEPPING — slice 10 ──────────────────────────────────────
+#   ★ WHY THIS IS ALMOST FREE HERE AND EXPENSIVE EVERYWHERE ELSE. A real
+#   debugger stepping backwards needs record/replay: it must have STORED
+#   the history, because re-running a process does not reproduce it. This
+#   evaluator is a pure function of its input, so re-execution reproduces
+#   the identical trace, node for node and ordinal for ordinal. History
+#   therefore does not need storing — it can be RECOMPUTED. "Step back" is
+#   the same deterministic walk with a different rule about which match
+#   survives: the LAST one before where you stand, instead of the first
+#   one after it.
+glyph FIND_STOP_BACK = la brk. la before. la gl.
+    (la g.
+        IF(IS_SOME(g))(la _.
+            ST_F(SND(DEBUG_EVAL_ST(FALSE)(REC_LAST(before))(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
+        )(la _.
+            error("debug_eval: no glyph: MAIN")
+        )
+    )(LIST_FIND("MAIN")(gl))
+
+glyph SHOW_STOP = la label. la o.
+    IF(IS_SOME(o))(la _.
+        print(concat(label)(STOP_S(R_VAL(o))))
+    )(la _.
+        print(concat(label)("(none)"))
+    )
+
+#   Two forward steps, then one back — the back must land EXACTLY on the
+#   first, which is the round trip. And a step back from beyond the end
+#   must give the LAST qualifying node, not the first: a REC_LAST that had
+#   quietly behaved like REC_FIRST would return the same stop as the
+#   forward search, and every other assertion here would still pass.
+glyph BK_GL   = PARSE_PROGRAM(SRC_STEP)
+glyph BK_F1   = FIND_STOP(STEP_OVER(2))(sub(0)(1))(BK_GL)
+glyph BK_F2   = FIND_STOP(STEP_OVER(2))(STOP_I(R_VAL(BK_F1)))(BK_GL)
+glyph BK_B1   = FIND_STOP_BACK(STEP_OVER(2))(STOP_I(R_VAL(BK_F2)))(BK_GL)
+glyph BK_LAST = FIND_STOP_BACK(STEP_OVER(2))(99)(BK_GL)
+
+glyph MAIN_BACK = SEQ(SEQ(SEQ(SEQ(SEQ(
+    print("--- back: two steps forward, one back ---"))(
+    SHOW_STOP("  fwd1 ")(BK_F1)))(
+    SHOW_STOP("  fwd2 ")(BK_F2)))(
+    SHOW_STOP("  back ")(BK_B1)))(
+    SHOW_STOP("  last ")(BK_LAST)))(
+    print("--- back: end ---"))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK)
