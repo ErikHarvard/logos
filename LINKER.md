@@ -1176,11 +1176,25 @@ about different trees, and the tree got stripped off in transit. The substantive
 claim is unanimous and holds in every tree: `link.la` occurs nowhere under
 `kernel/`.
 
-★ **The collision is the part to keep.** **76** is this tree's `kernel/*.sh`
-count *and* the count of D's kernel scripts containing `ld -T`. Two unrelated
-quantities, two trees, one number. Had both reports said 76, the agreement would
-have read as corroboration and ended the check. **An agreeing count is not a
-reconciled count unless the tree AND the glob are pinned.**
+★ **An agreeing count is not a reconciled count unless the tree AND the glob are
+pinned.** This was offered to me with a striking instance attached — that **76**
+is both this tree's `kernel/*.sh` count *and* the count of D's kernel scripts
+invoking `ld -T`, two unrelated quantities in two trees landing on one number,
+so that agreement would have read as corroboration and ended the check.
+
+⚠ **I amplified that instance before measuring it, and it does not survive.** On
+committed state D has **75** such scripts, not 76 — and the literal pattern
+`ld -T` matches **zero** of them, because the actual form is `ld -n -T`
+(`ld -n -T kernel/kernel.ld …`). A 76 would have to come from D's uncommitted
+working copy, which I cannot read; so the collision is **unconfirmed, not
+disproven** — and its unconfirmability is the same artifact-pinning problem in a
+third costume.
+
+**The rule stands without it.** It is carried by the four instances below, each
+measured, and did not need a coincidence to support it. A vivid instance is the
+part of a claim most likely to be repeated and least likely to be checked — this
+one arrived pre-formed, fitted the argument exactly, and I passed it on. That is
+the same reflex as accepting a relayed number, one level up.
 
 ★★ **A line number needs a third pin — the commit.** Checking `:332` against
 track-d's *committed* `boot.asm` (`git show track-d:kernel/boot.asm` — reading a
@@ -1189,6 +1203,21 @@ the likely reading is that `:332` came from D's uncommitted working copy. So a
 count crossing a track boundary is malformed without **tree + glob**, and a line
 number without **tree + commit**.
 
+**Confirmed, and the mechanism is worse than drift.** The `:332` reading did come
+from an uncommitted working copy (2529 lines there against the commit's 2192).
+But it was not a stale reading of one artifact — it was a **composite of two**:
+a line COUNT taken from `git show <ref>:file` (the commit) paired with a line
+NUMBER from `git grep` **without** a commit-ish, which reads the WORKING TREE.
+That row described no artifact that exists, which is why pinning the tree did not
+rescue it. So beneath the pins sits a simpler rule: **pin the artifact, then read
+it once.** Mixing `git show <ref>:` with a bare `git grep` in one report silently
+selects two different objects.
+
+*Checked against my own row before stating this:* `2192` and `:278` both
+re-derive from a single `git show track-d:kernel/boot.asm`, and the script counts
+came from `git ls-tree`/`git grep <rev>`, which are commit-pinned. Coherent — but
+I verified it rather than assumed it, having just published a coincidence I had
+not verified.
 ⇒ Same shape as slice 15, one layer down. There the evidence that a gate
 discriminates was mistaken for evidence it runs. Here a **comment asserting a
 guard** was mistaken for the guard. In both cases the artifact that would have
