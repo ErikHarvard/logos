@@ -701,6 +701,38 @@ every item below cites the ruling rather than inferring one.
   dependency, **before** any sweep — otherwise the sweep's first act is to fail 84
   correct modules. **Red path first, sweep second**, for a second and different
   reason than the one first recorded here.
+  ★★ **C2's RED PATH, RESOLVED — AND IT IS NOT A DEMOTION.** The correction above
+  called `SELF_APPLICATION` "a genuine constant". Measured across **every**
+  constructor rather than the one path I had tried, that is also too narrow:
+
+  | fixture | how built | verdict |
+  |---|---|---|
+  | `M_AATC` / `M_FAIL` / `M_SICK3` | `MODULE` → `SENSE` (`build.sh:2483-2485`) | `TTTT` / `TTFT` / `FTFF` |
+  | `ARCHE` (`build.sh:2479`) | `STRUCT` **directly** | `TTTT` |
+  | `BROKEN` (`build.sh:2480`) | `STRUCT` **directly**, field 3 = `""` | **`FFFF`** |
+
+  **C2 fires, and it is already exercised in the build** — `BROKEN` is precisely a
+  fixture with an empty self-application field, and it reads `F` in position 2. So
+  C2 is live, tested code and must **not** be demoted, which is what the paragraph
+  above proposed.
+
+  ★ **The defect is in `SENSE`'s mapping, not in the condition.** `SENSE` sets the
+  self-application field to `IF(selfok)(la _. mname)(la _. "FAIL")` — **both
+  branches non-empty** — and `C2 = NOT(str_eq(·)(""))`. So for **any module or
+  file**, which reaches the AATC only through `SENSE`/`SENSE_SRC`/`SENSE_FILE`, C2
+  is **structurally incapable of being false**. `SENSE` has no way to express
+  *"this module lacks self-application."* A 146-module sweep would therefore test
+  **three conditions while printing a four-letter verdict that reads as four.**
+  ⚠ **Give `SENSE` a false branch; do not weaken the condition** — the condition
+  works, the sensor cannot drive it.
+
+  ★ **Method note — third narrowing inside one item, second inside its own
+  correction.** I concluded "constant" from the `SENSE` path, then from the
+  `MODULE` fixtures; a wider sample moved the answer both times. Every step was
+  measured and every step was still too narrow. **The reachable-input set is itself
+  something to ENUMERATE, not assume** — an unreached condition and an absorbed
+  perturbation are the same error. This one was caught only by grepping for *who
+  constructs a `STRUCT`* rather than trusting that `SENSE` was the only constructor.
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
