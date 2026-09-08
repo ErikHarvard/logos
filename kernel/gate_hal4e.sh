@@ -33,9 +33,37 @@ if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
     echo "SKIP  HAL.4e text-window gate: qemu-system-x86_64 not installed"
     exit 0
 fi
+# ── ★ FRESH-CHECKOUT FIX, 2026-09-08 — THIS GATE COULD PASS HAVING TESTED NOTHING
+# It printed SKIP and `exit 0` when kernel/kernel_comp_text.elf was missing. That ELF is an
+# UNTRACKED build artifact (.gitignore: /kernel/kernel_*.elf), so on a fresh clone,
+# or after `git clean`, this gate asserted NOTHING and said so with a success code.
+# Wiring it in that state would have ADDED A FALSE GREEN to build.sh — worse than
+# leaving it unwired, which is why the gate census ruled "fix the skip first".
+#
+# This is kernel/gate_hal_idle.sh's fix (2026-08-19) applied to the same defect:
+#   ★ "I tested nothing" MUST NOT BE SPELLED THE SAME WAY AS "everything passed".
+#
+# WHY THE BUILD IS OPT-IN RATHER THAN AUTOMATIC, and this is measured, not assumed:
+# comp_text.la costs ~15 min+ (superlinear codegen; larger than comp_session.la at ~13 min).
+# gate_hal_idle.sh auto-builds only its 41-SECOND control and records that
+# auto-building THESE kernels "was rejected on cost". An unconditional build here
+# would silently turn any suite that wires this gate into a multi-hour run.
+# So: build on explicit opt-in, and otherwise FAIL LOUDLY. Note this is the
+# opposite of the skip flag build.sh forbids — there is no way to make this gate
+# report success without actually running the kernel.
 if [ ! -f kernel/kernel_comp_text.elf ]; then
-    echo "SKIP  HAL.4e text-window gate: kernel/kernel_comp_text.elf absent (build it out of band: ./kernel/build_hal4e.sh)"
-    exit 0
+    if [ "${LOGOS_GATE_BUILD:-0}" = "1" ] && [ -x ./kernel/build_hal4e.sh ]; then
+        echo "NOTE  HAL.4e text-window: kernel/kernel_comp_text.elf absent — building it (~15 min+ (superlinear codegen; larger than comp_session.la at ~13 min)) because LOGOS_GATE_BUILD=1"
+        ./kernel/build_hal4e.sh >/dev/null 2>&1 || {
+            echo "FAIL  HAL.4e text-window gate: ./kernel/build_hal4e.sh failed, so the kernel under test does not exist"; exit 1; }
+    fi
+fi
+if [ ! -f kernel/kernel_comp_text.elf ]; then
+    echo "FAIL  HAL.4e text-window gate: kernel/kernel_comp_text.elf is absent, so this gate tested NOTHING."
+    echo "      It used to report SKIP and exit 0 here, which is indistinguishable from a pass."
+    echo "      Build it out of band (./kernel/build_hal4e.sh, ~15 min+ (superlinear codegen; larger than comp_session.la at ~13 min)),"
+    echo "      or re-run with LOGOS_GATE_BUILD=1 to have this gate build it itself."
+    exit 1
 fi
 
 SERF=$(mktemp); SHOT=$(mktemp -u).ppm

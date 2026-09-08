@@ -812,6 +812,26 @@ Status: barely begun — this is the larger road ahead (a year-plus of work).*
             compile on tiny_host, the font flat-literal lesson: a 41-deep nest took
             >12 min and was killed; the flat form compiles in the normal ~5 min).
             (AegisNet's crypto/onion layer sits far above this bare TX/RX.)
+      > ★ **CORRECTION, 2026-09-08 — "gated" below means WRITTEN, not RUN.**
+      > `HAL.5a` and `HAL.5b` are wired into `build.sh`. **Every entry from `HAL.5c`
+      > to `HAL.5r` is not** — all sixteen `kernel/gate_nic5*.sh` exist, discriminate,
+      > and are invoked by NOTHING. Measured 2026-09-08 with two independently written
+      > instruments that agree (30 of 89 tracked `gate_*.sh` never invoked); the
+      > per-gate disposition is in `build.sh`'s GATE CENSUS block.
+      >
+      > **The "+ gated" claim below is therefore a claim the suite cannot support** —
+      > the same defect `build.sh` records about its own `verified-*` checkpoint tag,
+      > which stamped "Full audit passed clean" while no driver gate had run. Left in
+      > place and corrected here rather than rewritten sixteen times, so the original
+      > wording stays auditable.
+      >
+      > **Why they are unwired is COST, and the cost is the COMPILE, not the run.**
+      > Each gate rebuilds its LA driver through `tiny_host` — ~12 min for 5c, ~51 min
+      > for 5q (both measured below) — while the QEMU timeouts are only 60 s. Sixteen
+      > in the main suite is many hours. The disposition is the `gate_bootelf.sh`
+      > footing: **invoked separately, documented, never opted out of.** They are not
+      > abandoned and not superseded; nothing has run them since 2026-07/08.
+
       - [x] **HAL.5c — an ICMP ECHO round-trip (ping) — DONE + gated
             (2026-07-20).** One IP layer above HAL.5b's ARP: the kernel PINGS the
             SLIRP gateway (10.0.2.2) and receives the echo reply, in Lingua Adamica

@@ -69,6 +69,15 @@ if [ -x ./kernel/build_hal3bc_ctrl.sh ] && [ -f kernel/ata3b_ctrl.la ]; then
             echo "FAIL  HAL.3bc 3 [red-path]: the unbounded control did NOT crash ($cseen) — this gate cannot"
             echo "      distinguish the fix from no fix, so check 2 proves nothing."; ok=0
         fi
+    else
+        # ★ 2026-09-08: this branch had NO else, so a control build exiting 0
+        # WITHOUT producing an ELF removed the red path in SILENCE while the gate
+        # still PASSed. The build above fails loudly, so this covers only that
+        # narrow case — but a red control that can vanish with no line of output
+        # is the exact failure this gate exists to refuse in the driver.
+        echo "FAIL  HAL.3bc [red-path]: kernel/kernel_hal3b_ctrl.elf absent although build_hal3bc_ctrl.sh"
+        echo "      reported success — the red control did not run, so this gate cannot show"
+        echo "      it discriminates. A gate must never skip past its own control."; ok=0
     fi
 else
     echo "      NOTE: red-path SKIPPED — kernel/ata3b_ctrl.la + build_hal3bc_ctrl.sh not present."

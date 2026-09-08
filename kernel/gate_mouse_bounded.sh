@@ -58,6 +58,16 @@ if [ -x ./kernel/build_mouse_ctrl.sh ] && [ -f kernel/mouse_ctrl.la ]; then
         else
             echo "FAIL  mouse_bounded 2 [red-path]: control did neither ($cseen)"; ok=0
         fi
+    else
+        # ★ 2026-09-08: this branch had NO else (same shape as gate_ps2_bounded.sh),
+        # so a control build exiting 0 without producing an ELF removed the red path
+        # in silence while the gate still PASSed. The build above fails loudly, so
+        # this covers only that narrow case — but a red control that can disappear
+        # without a line of output is exactly what this gate refuses in the driver.
+        echo "FAIL  mouse_bounded [red-path]: kernel/kernel_mouse_ctrl.elf is absent although"
+        echo "      build_mouse_ctrl.sh reported success — the red control did not run, so this"
+        echo "      gate cannot show it discriminates. A gate must never skip past its control."
+        ok=0
     fi
 else
     echo "      NOTE: red-path SKIPPED — kernel/mouse_ctrl.la + build_mouse_ctrl.sh absent."

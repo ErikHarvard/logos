@@ -53,8 +53,17 @@ fi
 # a concurrent build in this worktree cannot then be mistaken for ours.
 if [ ! -x "$BIN" ] || [ kernel/alloc_churn.la -nt "$BIN" ]; then
     if [ ! -x ./tiny_host ] || [ ! -f native_codegen3.la ]; then
-        echo "SKIP  alloc-boundedness gate: tiny_host/native_codegen3.la absent"
-        exit 0
+        # ★ 2026-09-08: this said SKIP and `exit 0`. The distinction that matters is
+        # ENVIRONMENT vs ARTIFACT. Skipping on an absent /usr/bin/time above is
+        # legitimate — the machine cannot measure RSS, and every gate here skips on
+        # absent QEMU for the same reason. But tiny_host and native_codegen3.la are
+        # things THIS REPO BUILDS, so their absence means the gate could not test
+        # its own subject, and reporting that with a SUCCESS code spells "I tested
+        # nothing" exactly like "everything passed". Fail loudly instead.
+        echo "FAIL  alloc-boundedness gate: ./tiny_host or native_codegen3.la is absent, so"
+        echo "      alloc_churn could not be built and this gate tested NOTHING. These are"
+        echo "      artifacts this repo builds, not environment — run ./build.sh first."
+        exit 1
     fi
     echo "      building alloc_churn (~25 s, codegen is superlinear)"
     cp kernel/alloc_churn.la native_input.la

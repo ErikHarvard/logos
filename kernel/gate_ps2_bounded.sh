@@ -65,6 +65,17 @@ if [ -x "./kernel/build_${D}_ctrl.sh" ] && [ -f "kernel/${D}_ctrl.la" ]; then
         else
             echo "FAIL  ${D}_bounded 2 [red-path]: control did not die ($cseen) — this gate cannot tell the fix from no fix"; ok=0
         fi
+    else
+        # ★ 2026-09-08: this branch had NO else, so a control build that exited 0
+        # WITHOUT producing an ELF removed the red path in silence and the gate
+        # still PASSed — the discriminating half gone with no line in the output.
+        # The build above fails loudly, so this fires only on that narrow case;
+        # narrow is not the same as impossible, and a red control that can vanish
+        # quietly is the defect this whole gate exists to refuse.
+        echo "FAIL  ${D}_bounded [red-path]: kernel/kernel_${D}_ctrl.elf is absent although"
+        echo "      build_${D}_ctrl.sh reported success — the red control did not run, so this"
+        echo "      gate cannot show it discriminates. A gate must never skip past its control."
+        ok=0
     fi
 else
     echo "      NOTE: red-path SKIPPED — kernel/${D}_ctrl.la absent."
