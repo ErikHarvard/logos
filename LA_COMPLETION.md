@@ -1174,6 +1174,48 @@ Tier 0 item 3; the other six are unassigned.
   transcript with ONE flipped byte yields a different key and the AEAD open
   FAILS — a KEM gate that only tests the happy path passes for a KEM that
   returns a constant. *Tier 5, and it blocks the Γ-seal work in Tier 0.*
+  ★★ **KEM SCOPING (2026-09-08) — the absence RE-VERIFIED, and the blocker
+  re-characterised. The prerequisite is NOT missing; it is single-modulus.**
+
+  **(a) The absence stands, on a stronger search.** The original hits were taken
+  **case-sensitively**. Re-run case-insensitively and widened (`encapsulat`, `kem`,
+  `key_exchange`, `ecdh`, `x25519`, **`kyber`**, **`decapsulat`**, **`keyexch`**):
+  still **zero across every `.la`**. The finding holds and is now better evidenced
+  than when filed.
+
+  **(b) But "needs a bignum layer first" is not the blocker it appears.** A
+  **limb-based modular-arithmetic layer already exists in the tree**, unnamed as
+  one: `poly1305.la` implements arithmetic **mod 2¹³⁰−5 in five 26-bit limbs** —
+  `L26 = 67108863` (the limb mask), `CARRY d0…d4` (multi-limb carry propagation),
+  and **`MULMOD`** (multi-limb modular multiplication). `limb` also appears in
+  `wotsp.la` and `kernel/task_gc.la`. What is missing is not multi-precision
+  arithmetic but a **modulus-generic** one: `poly1305.la`'s is specialised to a
+  single prime and is not exposed as a reusable layer.
+  **So the first buildable step is a modulus-generic limb layer generalised from
+  code that already works and is already gated** — not a bignum layer from
+  nothing. That is a materially smaller and better-anchored first brick.
+
+  ★ **Independent corroboration, which this item did not cite when filed:**
+  `CODEX_AUDIT_FINDINGS.md` (a prior adversarial review, commit `5fc3c3c`) reached
+  the same conclusion from the specification side — key management is *"the single
+  highest-value thing to build: the load-bearing primitive every other
+  sovereign-privacy claim silently assumes."* Two audits, different routes, same
+  root. ⚠ And its **P-9** credits the *Codex* with correctly specifying
+  PQXDH/double-ratchet for messaging; that is a claim about the **spec**, while
+  this item is about the **build**. They do not conflict — they are at different
+  levels, and saying so prevents a later reader treating one as refuting the other.
+  ✓ **No live overclaim in code:** every `forward secrec*` hit in the tree is
+  inside an audit document recording the gap, not a module asserting the property.
+
+  ⚠ **METHOD — THIRD SEARCH-SURFACE FAILURE TODAY, MINE, TWENTY MINUTES AFTER
+  RECORDING THE RULE.** My capability scan for the arithmetic layer reported
+  `mulmod: 0` because it was **case-sensitive** and this codebase spells glyphs
+  **uppercase** — a convention documented in our own `CLAUDE.md`. `MULMOD` was
+  there the whole time. Same class as the `\textbf{bug}` grep and the truncated
+  `cut -c1-180`: **the instrument looked at a surface the artifact does not use.**
+  ★ It is also why (a) above was re-run rather than trusted — *the search that
+  found the false absence is the same search that produced the original finding*,
+  so the finding had to be re-earned before the correction could be filed.
 - `[ ]` **Levels 0, 1 and 4's hash are absent** — no mnemonic-seed derivation, no
   Argon2id (the memory-hard step that makes a 24-word seed brute-force-resistant
   is precisely what SHA-256 cannot substitute for), and no BLAKE3. `sha256.la`
