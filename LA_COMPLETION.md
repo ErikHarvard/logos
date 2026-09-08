@@ -660,6 +660,47 @@ every item below cites the ruling rather than inferring one.
   conditions' names; then a predicate that separates `kernel.la` from
   `glyph MAIN = "x"`. **Red path first, sweep second** — in that order, because the
   sweep is the part that looks like progress.
+
+  ★★★ **CORRECTION, SAME DAY, TO THE PARAGRAPH ABOVE — "two of four never fire"
+  WAS WRONG, AND BEING WRONG PRODUCED THE REAL FINDING.** The five inputs above
+  were all **import-free**, and `CLOSURE` keys off exactly the property none of
+  them had. Measured: a module containing `import(` returns **`TTTF`** — **C4
+  FIRES.** I concluded a condition was constant from a sample that could not
+  exercise it, which is the same error as an absorbed perturbation, one level up:
+  *the input never reached the condition.*
+
+  **The corrected table of which conditions discriminate:**
+
+  | | condition | fires? | on what |
+  |---|---|---|---|
+  | C1 | `SELF_INCLUSION` | **yes** | `F` when the source lacks `glyph <concept>` |
+  | C2 | `SELF_APPLICATION` | **NO — a genuine constant** | `SENSE` sets its field to `IF(selfok)(mname)("FAIL")`, never `""`, and `C2 = NOT(str_eq(·)(""))` |
+  | C3 | `SELF_VALIDATION` | **yes** | `F` on an empty file |
+  | C4 | `CLOSURE` | **yes** | `F` when the source contains `import(` |
+
+  ★ **AND `aatc.la` IS MORE FAITHFUL THAN I CREDITED.** `CLOSURE` is
+  `str_eq(SLACKS(s))("")` over a `dep` field that is precisely `CONTAINS(src)("import(")`
+  — a literal implementation of the Codex's C4, *"closure without external
+  structure… it imports what it does not ground."* **One constant, not two.**
+
+  ★★ **THE REAL DEFECT IS A LEVEL ERROR, AND IT INVERTS THE PREDICTION.** The
+  sweep would **not** print 146 green `TTTT`s. Measured over the tree: **84 of 146
+  modules contain `import(`**, so they report `TTTF` and **62** report `TTTT`. This
+  item's stated gate — *"failing the build on the first non-compliant one"* —
+  would therefore **fail the build on 57% of the tree, starting at `app.la`
+  importing `stdlib.la`**. And that failure would be **FALSE**: a module importing
+  another module *of the same system* is not importing **external** structure; it
+  is composing within the framework. The Codex's C4 governs the closure of a
+  **framework**; `AUDIT_FILE` applies it to a **file**. *The criterion is being
+  measured one level below where it lives* — which is why it reads as damning for
+  ordinary composition and permissive for a one-line stub.
+
+  **So the revised gate is revised again, and the order still holds:** C2 needs a
+  red path or must be demoted from a condition to a constant; and C4 needs a
+  notion of *external* that distinguishes an in-system `import` from an ungrounded
+  dependency, **before** any sweep — otherwise the sweep's first act is to fail 84
+  correct modules. **Red path first, sweep second**, for a second and different
+  reason than the one first recorded here.
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
