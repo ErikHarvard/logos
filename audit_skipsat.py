@@ -233,6 +233,53 @@ def gates_with_skip_paths(build, root):
     return n, missing
 
 
+ABORT = re.compile(r'^\s*(?:.*\|\|\s*)?exit\s+1\b')
+
+
+def invocation_sites(path):
+    """[(line, gate)] for every gate invocation, in file order.
+
+    ★ WHY THIS EXISTS (track A, 2026-09-08). A build that aborts early leaves the
+    REST OF THE FILE UNRUN — and an unreached gate emits NO SKIP LINE, no FAIL, and
+    no PASS. It is invisible to a counter. Track A's clean-checkout run reported
+    "129 PASS / 2 FAIL / 0 SKIP" while build.sh exited at line 4491 of 7471, so
+    ~46 gate invocations -- the entire kernel/QEMU half -- never executed. SKIP=0
+    was TRUE AND MISLEADING.
+
+    "No FAIL", "nothing skipped", and "everything ran" are THREE DISTINCT CLAIMS,
+    and the counters measure only the first two. This tool cannot observe a run,
+    but it can supply the static half: where the gates are, and therefore how many
+    an abort at any given point strands.
+    """
+    code = strip_comments(open(path, encoding='utf-8',
+                               errors='replace').read().split('\n'))
+    out = []
+    for i, l in enumerate(code):
+        if not l:
+            continue
+        for g in INVOKE.findall(l):
+            out.append((i + 1, g))
+    return out
+
+
+def unreached(path, at):
+    """Gates stranded by an abort at line/gate `at`. Accepts a LINE NUMBER or a
+    GATE NAME -- names are portable across branches, line numbers are not
+    (build.sh has diverged on five branches; the same gate sits at :4305 here and
+    :4490 on kernel-k1)."""
+    sites = invocation_sites(path)
+    try:
+        line = int(at)
+    except ValueError:
+        hit = [l for l, g in sites if g == at or g.endswith('/' + at)]
+        if not hit:
+            return None, None, None
+        line = hit[0]
+    before = [(l, g) for l, g in sites if l <= line]
+    after = [(l, g) for l, g in sites if l > line]
+    return line, before, after
+
+
 def invoked_gates(path):
     code = strip_comments(open(path, encoding='utf-8', errors='replace').read().split('\n'))
     return sorted({m for l in code if l for m in INVOKE.findall(l)})
@@ -313,7 +360,30 @@ def selftest(build):
         except ReconcileError as e:
             print(f"  FAIL reconcile (gate-internal surface): {e}"); ok = False
 
-    # 5. the certification link must be detected
+    # 5. UNREACHED accounting must balance — an identity that can fail.
+    sites = invocation_sites(build)
+    if sites:
+        mid = sites[len(sites) // 2][0]
+        _, before, after = unreached(build, mid)
+        if len(before) + len(after) != len(sites):
+            print(f"  FAIL unreached accounting: {len(before)}+{len(after)} != "
+                  f"{len(sites)}"); ok = False
+        elif not before or not after:
+            print(f"  FAIL unreached split is degenerate at line {mid} "
+                  f"({len(before)}/{len(after)}) — a partition with an empty side "
+                  f"cannot demonstrate the tool distinguishes reached from not"); ok = False
+        else:
+            print(f"  unreached accounting: {len(sites)} sites = {len(before)} "
+                  f"reached + {len(after)} stranded at line {mid}")
+        # name-based lookup must agree with the line it resolves to
+        g = sites[len(sites) // 2][1]
+        l2, b2, a2 = unreached(build, g)
+        if l2 is None or len(b2) + len(a2) != len(sites):
+            print(f"  FAIL name-based --reach disagrees for {g}"); ok = False
+        else:
+            print(f"  name-based --reach resolves: {g} -> line {l2}")
+
+    # 6. the certification link must be detected
     *_, cert = audit_build(build)
     if not cert:
         print("  FAIL certification link not detected (a verified-* tag with no "
@@ -330,10 +400,32 @@ def main():
     ap.add_argument('--build', default=os.path.join(HERE, 'build.sh'))
     ap.add_argument('--selftest', action='store_true')
     ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--reach', metavar='LINE|GATE',
+                    help='report the gates STRANDED by an abort at this point — '
+                         'the unreached set, which emits no SKIP line and so is '
+                         'invisible to a PASS/FAIL/SKIP tally')
     a = ap.parse_args()
 
     if a.selftest:
         return 0 if selftest(a.build) else 1
+
+    if a.reach:
+        line, before, after = unreached(a.build, a.reach)
+        if line is None:
+            print(f"audit_skipsat --reach: no invocation matches {a.reach!r}")
+            return 1
+        tot = len(before) + len(after)
+        print(f"audit_skipsat --reach {a.reach}  ({os.path.basename(a.build)})")
+        print(f"\n  an abort at line {line} strands {len(after)} of {tot} gate "
+              f"invocations — they emit NO SKIP LINE and so cannot appear in any")
+        print(f"  PASS/FAIL/SKIP tally. 'No FAIL', 'nothing skipped' and "
+              f"'everything ran' are three different claims.\n")
+        for l, g in after:
+            print(f"    UNREACHED  build.sh:{l:<5} {g}")
+        if not after:
+            print("    (none — the abort point is at or after the last invocation)")
+        print(f"\n  {len(before)} reached, {len(after)} unreached, {tot} total.")
+        return 0
 
     findings, all_skips, unmodelled, cert = audit_build(a.build)
     root = os.path.dirname(os.path.abspath(a.build))
@@ -391,6 +483,19 @@ def main():
         print(f"\n  ── UNMODELLED SKIP echoes (this tool could not place these in an "
               f"if/else; they are NOT cleared, they are unexamined) ──")
         print(f"    build.sh lines: {', '.join(str(n) for n in unmodelled)}")
+
+    sites = invocation_sites(a.build)
+    aborts = [i + 1 for i, l in enumerate(strip_comments(
+        open(a.build, encoding='utf-8', errors='replace').read().split('\n')))
+        if l and ABORT.match(l)]
+    if sites and aborts:
+        first = min(aborts)
+        stranded = [s2 for s2 in sites if s2[0] > first]
+        print(f"\n  ── UNREACHED-SET HAZARD (invisible to any PASS/FAIL/SKIP tally) ──")
+        print(f"    {len(sites)} gate invocations; earliest abort at line {first} "
+              f"would strand {len(stranded)} of them.")
+        print(f"    An unreached gate emits NO SKIP LINE — use --reach <line|gate> "
+              f"with a real run's abort point.")
 
     print(f"\n  ── CERTIFICATION ──")
     if cert:
