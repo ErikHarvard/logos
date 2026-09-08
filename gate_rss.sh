@@ -19,7 +19,14 @@
 # (paths via env or the defaults below).
 set -e
 
-LOGOS="${LOGOS:-$HOME/logos}"
+# ★ THE DEFAULT USED TO BE $HOME/logos, WHICH IS NOT NECESSARILY THIS TREE.
+# Five worktrees share this script. A gate that measures ~/logos while being
+# run from ~/logos-d reports on someone else's binaries and calls it a verdict
+# -- and it does so SILENTLY, since ~/logos always exists and always has the
+# prerequisites. Default to the directory the script itself lives in, the same
+# discipline as build.sh's `cd "$(dirname "$0")"`, so the gate measures the
+# tree it was invoked from. An explicit LOGOS= still overrides.
+LOGOS="${LOGOS:-$(cd "$(dirname "$0")" && pwd)}"
 HEAPSCOPE="${HEAPSCOPE:-$LOGOS/heapscope.py}"
 BOUND_MIB="${BOUND_MIB:-64}"     # GREEN if peak heap <= this. Leak drives it to 100s-1000s.
 N="${N:-4000000000}"             # big enough to outlive sampling and expose the drift
@@ -68,7 +75,12 @@ python3 "$HEAPSCOPE" "$LAPID" --peak --interval 2 --max-heap-mib "$BOUND_MIB" ||
 if [ "$RC" = 0 ]; then
     echo "PASS  gate_rss: heap bounded <= ${BOUND_MIB} MiB (frontier drift fixed)"
 elif [ "$RC" = 1 ]; then
-    echo "FAIL  gate_rss: heap UNBOUNDED -- the sqrt-leak is present (expected RED until GCfix2b lands)"
+    # GCfix2b HAS landed (native_codegen3_rt.asm) and this gate measured GREEN
+    # at 4.0 MiB peak against the 64 MiB bound on 2026-09-08, which is when it
+    # was wired into build.sh. So a red here is no longer an expected baseline
+    # -- it is a REGRESSION. The old wording said "expected RED until GCfix2b
+    # lands" and would have told a reader to dismiss exactly that.
+    echo "FAIL  gate_rss: heap UNBOUNDED -- frontier drift is BACK. GCfix2b landed and this gate measured 4.0 MiB peak when wired; this is a REGRESSION, not the old baseline"
 else
     echo "FAIL  gate_rss: measurement error (rc=$RC) -- NOT a plateau, a broken run"
 fi

@@ -3366,6 +3366,36 @@ else
 fi
 rm -f native_codegen3_out native_input.la /tmp/c3gc.out /tmp/c3bc.out
 
+# ── Stage 3b (a''): the SAME drift, measured on the HEAP rather than on RSS ──
+#    gate_rss.sh existed, was repaired TWICE today (e8168f4 fixed a trap that
+#    aborted under `set -e` so it exited 1 on every PASS; 3e73cdf fixed a bare
+#    heapscope call that made the whole verdict block dead code) — and was
+#    invoked by NOTHING. Two commits of real repair on a code path the build
+#    never reached. It and gate_bootelf.sh were the only two of this tree's 52
+#    gate scripts not wired; gate_bootelf stays out deliberately (~26 min).
+#
+#    ★ IT OVERLAPS (a') AND IS NOT REDUNDANT WITH IT, which is the only reason
+#    it earns 6.7 minutes. (a') above measures PEAK RSS as a scale-invariant
+#    ratio; this measures PEAK HEAP as an absolute bound. They differ because
+#    the arena shares one giant PT_LOAD with the worklist and bitmap, so process
+#    RSS CONFLATES the three regions — heapscope reads pagemap per-region and
+#    isolates the heap, which is the region that actually drifts. A ratio over a
+#    conflated total and an absolute bound on the isolated region fail on
+#    different things; neither subsumes the other.
+#
+#    MEASURED 2026-09-08 before wiring, not assumed: PASS at 4.0 MiB peak
+#    against the 64 MiB bound, rc=0, 402 s. That runtime is the real cost of
+#    this line and is why it is recorded here rather than discovered later.
+#    Its path default was $HOME/logos — NOT necessarily this tree, and silently
+#    so, since ~/logos always exists and always has the prerequisites; it now
+#    defaults to the script's own directory (red-tested: from a tree missing
+#    native_codegen3.la it SKIPs naming THAT tree, where the old default found
+#    ~/logos's copy and proceeded). A gate file missing is a broken checkout,
+#    not an optional check, so its absence is fatal here.
+say "Native backend Stage 3b (a''): heap-isolated frontier-drift bound (gate_rss.sh)"
+[ -f gate_rss.sh ] || { echo "FAIL  gate_rss: gate_rss.sh is absent — a gate file missing means a broken checkout, not an optional check"; exit 1; }
+sh gate_rss.sh || exit 1
+
 # ── Stage 3c: letrec — mutually-recursive glyphs compile (COLLAPSE_RECGROUPS) ──
 #    Whole-program inlining alone rejects a CYCLE of named glyphs ('cyclic glyph
 #    reference'); the SCC-collapse pre-pass rewrites each strongly-connected group
@@ -7406,9 +7436,14 @@ bash kernel/gate_k5b2.sh || exit 1
 # ★ MEASURED 2026-08-28, independently by two sessions, with controls (a
 #   known-invoked and a known-uninvoked gate) checked BEFORE believing the
 #   number: 52 gate scripts exist (12 root + 40 kernel); 50 are invoked; all 40
-#   kernel gates run, from the block below. The two that are not are
+#   kernel gates run, from the block below. The two that were not are
 #   gate_bootelf.sh (deliberate — a ~26-min native-VM cycle, invoked separately
-#   like the QEMU gates) and gate_rss.sh (a real candidate, still unwired).
+#   like the QEMU gates) and gate_rss.sh.
+#   ★ UPDATED 2026-09-08: gate_rss.sh IS NOW WIRED, at Stage 3b (a'') in the
+#   native-backend section, so the count is 51 invoked / 1 deliberately out.
+#   Corrected here at the same commit that wired it, because a note saying a
+#   gate is unwired outlives the fact by exactly as long as nobody re-derives
+#   it — which is the failure this whole comment block was written about.
 #   Method note, because three greps in a row got this wrong: a bare-name grep
 #   matches gate names inside THIS comment, and a \b-anchored one silently
 #   misses every ./gate_X.sh. Search per script, excluding existence-test and
