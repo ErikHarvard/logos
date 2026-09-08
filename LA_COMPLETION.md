@@ -802,6 +802,59 @@ every item below cites the ruling rather than inferring one.
   divergence — not repair of the gate**. That is the disposition already chosen for
   `SENSE` above (*give it a false branch; do not weaken the condition*), reached
   independently and before the text was in hand.
+- `[ ]` **∂ is asserted universally and measured nowhere — FILED, NOT OPENED
+  (2026-09-08).** *Being & Becoming* Ch. 11 claims **∂ = 1** universally: every
+  autological structure reaches full self-transparency in **one** pass. Ch. 6
+  defines ∂ as a **three-band** scale (`= 1` single pass · `> 1` multiple passes,
+  **unstable** · `= ∞` never stabilises). **Nothing in the build measures ∂ as a
+  DEPTH.** Everything metacursive tests the *self-application* form — `X(X) = X`,
+  `IS_TYPE(IS_TYPE)` (`metadebug.la:321`/`:364`, asserted at `build.sh:740-741`
+  as `T5_self: T`), `META_DEBUG`, `AUTO_OK`, `C(C) = C` — and **by construction
+  cannot distinguish "stabilises at pass 1" from "stabilises at pass 2"**, because
+  applying an operator to itself *once* produces one verdict. `IS_TYPE(IS_TYPE)`
+  also returns a **boolean**, so it measures *satisfaction*, not the identity.
+
+  ★★ **WHY THIS IS NOW A GATE AND NOT A SEARCH — the control the corpus supplies.**
+  A search that finds nothing is the weakest possible evidence, which is why this
+  item was declined when first raised. The corpus names its own **sole** exception,
+  so the search has a **pass/fail criterion fixed in advance**. `Logos & Paradox
+  English.tex:5523` (verified verbatim, positive-controlled before trusting):
+
+  > *"**Negation IS the sole linguistic operator that fails metacursion.** Every
+  > other concept X satisfies X(X) = X… Define ¬_F(X)(P) = ¬(X(P))… Then
+  > ¬_F(¬_F)(P) = ¬(¬P) = P = id(P). Therefore **¬_F(¬_F) = id**. At the operator
+  > level, **id IS ∃**… it IS the sole operator that fails (X(X) ≠ X)."*
+
+  Against Ch. 11's stated falsification form — *exhibit X where X(X) ≠ X but
+  X(X)(X(X)) = X(X)* — with `X = ¬_F`: `X(X) = id ≠ ¬_F` (asserted outright), and
+  `X(X)(X(X)) = id(id) = id = X(X)` (∃(∃) ≡ ∃ **is** that idempotence). Exact fit,
+  stable at the second pass.
+
+  **Gate:** a ∂-sweep over the tree's operators must find **exactly one** failure of
+  `X(X) = X`, and it must be **negation**. **Red paths, both directions:** *zero*
+  found ⟹ **the search is broken**, not the corpus vindicated — the instrument
+  cannot see the one case the text marks; *two or more* ⟹ either a real second case
+  or a false positive, and **either outcome is informative**. That is a red path
+  *for a search*, which is precisely what this item lacked.
+
+  ⚠ **Honest caveat, stated up front.** The Codex frames negation as **failing
+  autology**, not as "∂ = 2". Whether *fails at pass one, closes at pass two* counts
+  as ∂ = 2 or simply as **not-autological** is a typing question the corpus does not
+  settle. As a **control** it is ideal either way — the instrument must find the one
+  case the text marks. As a **falsification of ∂ = 1** it is **not**, since ∂ = 1 is
+  claimed *for autological structures* and negation is the named non-autological
+  one. ⚠ Two earlier candidates were **withdrawn** and are recorded so they are not
+  re-proposed: **CTMU ∂ > 1** (`B&B:4045`) is a *closure failure* and `B&B:3708`
+  calls that band **unstable** — it shares a symbol with a stable second-pass fixed
+  point, not a meaning; and **ρ-composition** (`L&P:1709`) is the Codex
+  *reconciling itself* — two typed readings of one glyph-form, output-level ∂ = 1
+  and act-level ∂ = 2, where **nothing fails**. A control needs something that
+  actually breaks.
+
+  *Filed, not opened: `crit:compliance` and the KEM are further along, and this is
+  better opened whole. Same shape as `crit:compliance` one level up — the criterion
+  is stated; the discriminating measurement is absent.*
+
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
