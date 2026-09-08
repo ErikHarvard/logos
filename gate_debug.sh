@@ -71,7 +71,7 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
-EXPECT_AGREE=18
+EXPECT_AGREE=20
 EXPECT_BREAK=11
 
 command -v timeout >/dev/null 2>&1 || { echo "SKIP  debug: timeout(1) absent"; exit 0; }
@@ -466,29 +466,73 @@ else
     echo "PASS  debug 8: a fault reports before it dies — #12 VAR frame4, dynamic chain w <- z <- y <- MAIN, env w=str:in — and still exits $FRC, so the post-mortem reports without catching"
 fi
 
-# ── 9. host == VM ──────────────────────────────────────────────────────────
+# ── 9. INSPECTION: the answer must come from the STOPPED scope ─────────────
+#   ★ THE DISCRIMINATOR IS TWO ANSWERS TO ONE QUESTION. Evaluating in the
+#   top-level environment still yields a plausible value for any expression
+#   naming only glyphs, and silently answers the WRONG question wherever a
+#   local is involved — while looking exactly like a working inspector. So the
+#   SAME expression is asked at two stops of SRC_TWO, where `x` is bound
+#   differently on each route, and the two answers must DIFFER. Asserting one
+#   value alone would pass against an inspector wired to the wrong scope.
+a_lines=$(csec "ask: concat" | grep -c '!! \|stop #')
+a1=$(csec "ask: concat" | sed -n 's/.*concat(x)("!") = //p' | sed -n 1p)
+a2=$(csec "ask: concat" | sed -n 's/.*concat(x)("!") = //p' | sed -n 2p)
+a_glyph=$(csec "ask: an expression naming" | sed -n 's/.*ID("probe") = //p' | sed -n 1p)
+m_band=$(csec "merged: builtins" | grep -c '^AGREE str:8$')
+m_strat=$(csec "merged: builtins" | grep -c '^AGREE str:b$')
+if [ "$a_lines" -lt 2 ]; then
+    echo "FAIL  debug 9: the inspection section produced $a_lines stop lines — it did not run, so any agreement below proves nothing"; ok=0
+elif [ -z "$a1" ] || [ -z "$a2" ]; then
+    echo "FAIL  debug 9: fewer than two inspections were reported (got '$a1' / '$a2') — the two-stop discriminator needs both"; ok=0
+elif [ "$a1" = "$a2" ]; then
+    echo "FAIL  debug 9: the same expression answered '$a1' at BOTH stops — EITHER the inspection is not using the stopped scope, OR the ask-session is not resuming and both stops are the same stop; a red run showed the second cause reaches this branch, so it names both"; ok=0
+elif [ "$a1" != "str:from-a!" ] || [ "$a2" != "str:from-b!" ]; then
+    echo "FAIL  debug 9: inspections were '$a1' and '$a2', expected 'str:from-a!' and 'str:from-b!'"; ok=0
+#   An expression naming a GLYPH rather than a local proves the table is
+#   threaded too — a stopped env alone cannot resolve ID.
+#   ★ HONEST SCOPE OF THE TWO BRANCHES BELOW. Both guard defects that turn
+#   out to be FATAL rather than wrong-answering: dropping the stopped env, or
+#   dropping the glyph table, leaves `x` / `ID` unbound, so EVAL halts and the
+#   whole run dies — caught by check 1's "did not complete" guard, not here. I
+#   could not construct a non-fatal defect that reaches either branch, so they
+#   are DEFENSIVE, not red-tested. Recorded rather than asserted, because an
+#   untested branch that reads like a proven one is the failure this gate has
+#   been catching in itself since slice 4.
+elif [ "$a_glyph" != "str:probe" ]; then
+    echo "FAIL  debug 9: ID(\"probe\") inspected to '$a_glyph', expected 'str:probe' — the glyph table is not reaching the inspector"; ok=0
+#   The merge brought str_at and the bitwise ops to all five engines. DEBUG_EVAL
+#   resolves builtins through eval.la's IS_BI_NAME/APPLY_BI, which it IMPORTS
+#   rather than copies, so it should have gained them for free — this is the
+#   check that removes the word "should".
+elif [ "$m_band" -ne 1 ] || [ "$m_strat" -ne 1 ]; then
+    echo "FAIL  debug 9: the merged builtins did not agree under the debugger (band $m_band, str_at $m_strat of 1 each) — DEBUG_EVAL has drifted from the builtin table it imports"; ok=0
+else
+    echo "PASS  debug 9: inspection answers from the STOPPED scope — one expression, two stops, '$a1' then '$a2'; a glyph-naming expression resolves to $a_glyph; and the merged band/str_at builtins agree under the debugger"
+fi
+
+# ── 10. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 9: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 10: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 9: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 10: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 9: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 10: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 9: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 10: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 9: host and VM disagree"
+                echo "FAIL  debug 10: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

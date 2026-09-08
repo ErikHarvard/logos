@@ -7549,6 +7549,18 @@ bash kernel/gate_with_ok.sh || exit 1   # WITH_OK host_image == metal_image, the
 # idiom used for the RUN_SM harness above, so there is no second copy of the
 # machinery to drift from what it tests.
 #
+# Slice 8 is INSPECTION — the first slice that ANSWERS rather than reports. The
+# driver can say where you are and BREAK can print what is bound, but neither
+# lets you ask something the debugger was not already going to tell you. The
+# stop record now carries the ENVIRONMENT, and INSPECT evaluates an arbitrary
+# expression in it. The claim is the SCOPE, so the gate asks one expression at
+# two stops where the local differs and requires the answers to DIFFER — a
+# top-level evaluator would answer plausibly for glyph-only expressions and
+# silently wrongly for every local. It also checks that the builtins the
+# kernel-k1 merge added (band, str_at) agree under the debugger, which they do
+# for free because DEBUG_EVAL imports eval.la's builtin table rather than
+# copying it — "for free" being the phrase the check exists to verify.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide

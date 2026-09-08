@@ -246,24 +246,31 @@ glyph ST_F  = la st. SND(st)
 #   A stop carries what the NEXT command needs — its ordinal, to resume
 #   after; its FRAME depth, which is the n0 a step command is relative to
 #   — plus a rendered line for the reader.
-glyph STOP_REC = la i. la d. la ast. la stk.
+#   ★ SLICE 8 ADDS THE ENVIRONMENT TO THE RECORD. Until now a stop carried
+#   only what the DRIVER needed to resume — ordinal and frame depth — plus a
+#   rendered line for the reader. That is enough to say where you are and to
+#   print what is bound, but not enough to ASK anything: an inspection has to
+#   evaluate in the scope that was in force AT THE STOP, and that scope was
+#   discarded the moment the line was rendered.
+glyph STOP_REC = la i. la d. la ast. la env. la stk.
     (la n.
     (la head.
     (la tail.
-        PAIR(i)(PAIR(n)(concat(head)(tail)))
+        PAIR(i)(PAIR(n)(PAIR(concat(head)(tail))(env)))
     )(concat(concat(" frame")(int_to_str(n)))(concat(" bt: ")(SHOW_STK(stk))))
     )(concat(concat("#")(int_to_str(i)))(concat(" ")(AST_KIND(ast))))
     )(STK_LEN(stk))
 glyph STOP_I = la r. FST(r)
 glyph STOP_N = la r. FST(SND(r))
-glyph STOP_S = la r. SND(SND(r))
+glyph STOP_S = la r. FST(SND(SND(r)))
+glyph STOP_E = la r. SND(SND(SND(r)))
 
 #   The FIRST match strictly after `after` is kept and later ones ignored:
 #   that is what makes it "the NEXT stop" rather than "a stop".
-glyph ST_FOUND = la after. la fired. la i. la d. la ast. la stk. la old.
+glyph ST_FOUND = la after. la fired. la i. la d. la ast. la env. la stk. la old.
     IF(fired)(la _.
         IF(IS_SOME(old))(la _. old)(la _.
-        IF(lt(after)(i))(la _. OPT_SOME(STOP_REC(i)(d)(ast)(stk)))(la _. old))
+        IF(lt(after)(i))(la _. OPT_SOME(STOP_REC(i)(d)(ast)(env)(stk)))(la _. old))
     )(la _. old)
 
 #   One node visit: emit, decide, advance. `tr` silences the trace — a
@@ -274,7 +281,7 @@ glyph ST_VISIT = la tr. la after. la brk. la d. la ast. la env. la stk. la st.
     (la fired.
         SEQ(IF(tr)(la _. ENTER(d)(ast))(la _. ""))(
         SEQ(IF(fired)(la _. IF(tr)(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(la _. ""))(
-        ST_MK(add(i)(1))(ST_FOUND(after)(fired)(i)(d)(ast)(stk)(ST_F(st)))))
+        ST_MK(add(i)(1))(ST_FOUND(after)(fired)(i)(d)(ast)(env)(stk)(ST_F(st)))))
     )(brk(d)(ast)(env)(stk))
     )(ST_I(st))
 
@@ -299,7 +306,7 @@ glyph ST_VISIT = la tr. la after. la brk. la d. la ast. la env. la stk. la st.
 #   breakpoint, and there is no second formatter to drift from it.
 glyph FAULT = la msg. la i. la d. la ast. la env. la stk.
     SEQ(print(concat("!! FAULT ")(msg)))(
-    SEQ(print(concat("!! FAULT at ")(STOP_S(STOP_REC(i)(d)(ast)(stk)))))(
+    SEQ(print(concat("!! FAULT at ")(STOP_S(STOP_REC(i)(d)(ast)(env)(stk)))))(
     SEQ(print(concat("!! FAULT env: ")(SHOW_ENV(env))))(
     error(msg))))
 
@@ -632,4 +639,84 @@ glyph MAIN_DRIVE = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(
     print("--- drive: run to z, then OUT, which runs off the end ---")))(
     RUN_SESSION(SESS_END)(SRC_STEP))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE)
+# ── INSPECTION — asking a question at a stop, slice 8 ────────────────
+#   ★ EVERY SLICE SO FAR REPORTS; THIS ONE ANSWERS. The driver can say
+#   where you are (#5 VAR frame2), and BREAK can print what is bound
+#   (x=str:from-a). Neither lets you ask something the debugger was not
+#   already planning to tell you — "what is concat(x)(\"!\") here?" had no
+#   expression to evaluate it with.
+#
+#   ★ IT MUST EVALUATE IN THE STOPPED SCOPE, AND THAT IS THE WHOLE CLAIM.
+#   Evaluating in the top-level environment would still produce a
+#   plausible-looking value for any expression mentioning only glyphs, and
+#   would silently answer the WRONG question for every expression that
+#   mentions a local. So the gate asks the SAME expression at two stops of
+#   one program where the local differs, and requires the two answers to
+#   DIFFER — the discriminator, not a spot check.
+#
+#   The expression is parsed by wrapping it as a one-glyph program and
+#   looking the glyph back up. That reuses PARSE_PROGRAM, which eval.la
+#   exports, rather than reaching for a bare expression parser it keeps
+#   private — the same reasoning that rebuilt the option from PAIR.
+glyph INSPECT = la gl. la env. la src.
+    (la parsed.
+        (la found.
+            IF(IS_SOME(found))(la _.
+                SHOW_VAL(EVAL(R_VAL(found))(env)(gl))
+            )(la _.
+                error(concat("inspect: expression did not parse: ")(src))
+            )
+        )(LIST_FIND("__Q")(parsed))
+    )(PARSE_PROGRAM(concat("glyph __Q = ")(src)))
+
+#   The driver, with a question asked at every stop. Identical to SESSION
+#   except for the inspection, and deliberately NOT a second copy of the
+#   fold: it calls the same FIND_STOP, so a divergence in resumption
+#   cannot appear here without appearing there.
+glyph SESSION_ASK = la cmds. la expr. la gl.
+    Z(la self. la cs. la after. la n0.
+        IF(ENV_MORE(cs))(la _.
+            (la stop.
+                IF(IS_SOME(stop))(la _.
+                    (la r.
+                        SEQ(print(concat(concat("  stop ")(STOP_S(r)))(concat(concat("  |  ")(concat(expr)(" = ")))(INSPECT(gl)(STOP_E(r))(expr)))))(
+                        self(ENV_TAIL(cs))(STOP_I(r))(STOP_N(r)))
+                    )(R_VAL(stop))
+                )(la _.
+                    print("  (no further stop -- the run completed)")
+                )
+            )(FIND_STOP(ENV_HEAD(cs)(n0))(after)(gl))
+        )(la _.
+            print("  -- session end --")
+        )
+    )(cmds)(sub(0)(1))(1)
+
+glyph RUN_ASK = la cmds. la expr. la src. SESSION_ASK(cmds)(expr)(PARSE_PROGRAM(src))
+
+#   SRC_TWO reaches ONE node by two routes with `x` bound differently on
+#   each — the program slice 4 built for the conditional control, reused
+#   here because it is exactly what separates stopped-scope from
+#   top-level-scope evaluation.
+glyph SESS_ASK = CONS(CMD_RUNTO("x"))(CONS(CMD_RUNTO("x"))(NIL))
+
+glyph MAIN_ASK = SEQ(SEQ(SEQ(SEQ(
+    print("--- ask: concat(x)(!) at two stops, same expression ---"))(
+    RUN_ASK(SESS_ASK)("concat(x)(\"!\")")(SRC_TWO)))(
+    print("--- ask: an expression naming a GLYPH, resolved through gl ---")))(
+    RUN_ASK(CONS(CMD_RUNTO("x"))(NIL))("ID(\"probe\")")(SRC_TWO)))(
+    print("--- ask: end ---"))
+
+# ── the merged builtins, under the debugger ──────────────────────────
+#   The kernel-k1 merge brought str_at and the bitwise ops to all five
+#   engines. DEBUG_EVAL resolves builtins through eval.la's IS_BI_NAME and
+#   APPLY_BI, which it IMPORTS rather than copies, so it should have gained
+#   them for free — "should" being the word the gate exists to remove.
+glyph SRC_BAND  = "glyph MAIN = int_to_str(band(12)(10))"
+glyph SRC_STRAT = "glyph MAIN = str_at(\"abc\")(1)"
+
+glyph MAIN_MERGED = SEQ(SEQ(
+    print("--- merged: builtins that arrived with kernel-k1 ---"))(
+    print(AGREES(SRC_BAND))))(
+    print(AGREES(SRC_STRAT)))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED)
