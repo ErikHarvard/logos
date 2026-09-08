@@ -1049,7 +1049,17 @@ say "Spec pipeline: the nine LA primitives via import(\"specpipe.la\")"
 # is the deliberate exception — DEPTH(DEPTH) is the infinite descent Ω — so its
 # META_DEBUG tests metacursion on halting args, and its divergence is asserted
 # below via timeout, on both engines.
-PR="$(./tiny_host primitives_spec.la 2>/dev/null)"
+# ★ THE CAPTURES BELOW ARE `|| true`-GUARDED, AND THAT IS LOAD-BEARING, 2026-09-08.
+# Under `set -euo pipefail`, `VAR="$(cmd)"` ABORTS THE SCRIPT when cmd exits
+# non-zero — so every FAIL line below it is DEAD CODE ON EXACTLY THE PATH IT
+# EXISTS TO REPORT. MEASURED, not reasoned: denote.la with a defect planted in
+# its LOVE leaf exits rc=1, and the denote section died at its capture having
+# printed NO `FAIL  denote:` line at all. The build still went red — but mutely,
+# and a consumer grepping '^FAIL' saw nothing. Same class as Track A's
+# gate_rss.sh (which could not report a red) and Track D's gate_p1.sh (which
+# could never go green): a gate that cannot SPEAK tests as little as one that
+# cannot FAIL. The guard lets the assertion do the reporting, which is its job.
+PR="$(./tiny_host primitives_spec.la 2>/dev/null || true)"
 ok=1
 for G in BEING Z RELATION RECOGNITION LOVE SELF VOID BECOMING FORM DEPTH DEPTH_Z; do
     printf '%s\n' "$PR" | grep -qx "  $G: PASS" || { echo "FAIL  primitives: $G autology not verified"; ok=0; }
@@ -1077,7 +1087,7 @@ glyph IF  = la c. la t. la f. c(t)(f)("!")
 glyph MAIN =
   print(concat(SND(RELATION(RELATION)("a")))(
         concat(FST(FST(RECOGNITION(RECOGNITION))("b")))(
-        concat(FST(FST(FST(FST(LOVE(LOVE)(LOVE)))("c")("z"))))(
+        concat(FST(FST(LOVE(LOVE))("c")))(
         concat(SELF(SELF)("d"))(
         concat(VOID(VOID)("e"))(
         concat(BECOMING(BECOMING)(la _. "f")("z"))(
@@ -1086,13 +1096,13 @@ glyph MAIN =
         DEPTH_Z(la self. la n. IF(int_eq(n)(0))(la _. "i")(la _. self(sub(n)(1))))(3))))))))))
 LA
 PRIM_EXPECT="abcdefghi"
-PRH="$(./tiny_host /tmp/primtest.la 2>/dev/null)"
+PRH="$(./tiny_host /tmp/primtest.la 2>/dev/null || true)"
 [ "$PRH" = "$PRIM_EXPECT" ] || { echo "FAIL  primitives: autology witnesses wrong on host"; printf '%s\n' "$PRH"; ok=0; }
 rm -f logos_secd logos_program.bin logos_source.la
 ./tiny_host secd.la >/dev/null 2>&1
 cp /tmp/primtest.la logos_source.la
 ./tiny_host codegen.la >/dev/null 2>&1
-PRV="$(./logos_secd 2>/dev/null)"
+PRV="$(./logos_secd 2>/dev/null || true)"
 [ "$PRV" = "$PRIM_EXPECT" ] || { echo "FAIL  primitives: autology witnesses wrong on native VM"; printf '%s\n' "$PRV"; ok=0; }
 rm -f /tmp/primtest.la logos_secd logos_program.bin logos_source.la
 # DEPTH autology is non-termination (Ω). Assert DEPTH(DEPTH) never returns on
@@ -5461,7 +5471,7 @@ rm -f logos_secd logos_program.bin logos_source.la
 
 say "LA arc items 3+4: denotational morphology (γ_g, r_D) + the glyphic combination law (denote.la)"
 ok=1
-DN_H="$(./tiny_host denote.la 2>/dev/null)"
+DN_H="$(./tiny_host denote.la 2>/dev/null || true)"
 for w in "ITEM3 reduction ⟦γ_Λ(a,b)⟧=r_D(⟦a⟧,⟦b⟧):T" \
          "violation(▷ operand-swap) CAUGHT:T" \
          "⊥ not undefined (PM disjoint):T" \
@@ -5488,7 +5498,7 @@ rm -f logos_secd logos_program.bin logos_source.la
 ./tiny_host secd.la >/dev/null 2>&1
 cp denote.la logos_source.la
 ./tiny_host codegen.la >/dev/null 2>&1
-DN_V="$(./logos_secd 2>/dev/null)"
+DN_V="$(./logos_secd 2>/dev/null || true)"
 [ "$DN_H" = "$DN_V" ] || { echo "FAIL  items3/4: host != VM"; ok=0; }
 rm -f logos_secd logos_program.bin logos_source.la
 [ "$ok" -eq 1 ] && echo "PASS  items3/4: γ_g and r_D are real LA operators; the reduction ⟦γ_Λ(a,b)⟧=r_D(⟦a⟧,⟦b⟧) holds and FAILS on a constructed violation; ⊥ is a total false-everywhere function, never a stuck term; the combination law is a PREDICATE with a constructible violation; byte-identical host==VM" || exit 1
@@ -5685,20 +5695,41 @@ say "Denotational COMPOSE: the meaning of a compound as a FUNCTION of its parts 
 # reduces to SELF denotationally — syntax-rewrite and semantic-reduction agree (Frege).
 # Pure λ, byte-identical on the C host and the native VM.
 ok=1
-DEN_EXPECT="DENOTE ⊗-recovers-both[BEING,VOID]:pq | ↻(BEING)≡SELF-denotationally:T | nested-⊗(↻BEING,VOID):rs"
+# ★ TWO WITNESSES ADDED 2026-09-08 (⊕-symmetric-both-orders, LOVE-leaf-is-the-
+# generator). The LOVE realignment moved the symmetrization out of LOVE and INTO
+# D_CON, and D_CON — ⊕'s whole denotation — was covered by NO assertion here:
+# the three witnesses were ⊗, ↻ and nested-⊗.
+#
+# ★ WHAT WAS ACTUALLY MEASURED, since the first draft of this comment guessed and
+# guessed WRONG. Five D_CON defects were planted. FOUR of them (denotes-⊗,
+# lost-symmetry either way, halves-swapped) make the module produce NO OUTPUT AT
+# ALL, so the three-witness gate went red on them too — the fourth witness is not
+# what catches those, and claiming it was would have been a fabricated red path.
+# The FIFTH was silent: `D_CON = LOVE(a)(b)`, the pre-realignment spelling, left
+# all three original witnesses byte-identical.
+#
+# ★ AND THE FIFTH WAS SILENT FOR A REASON THAT WAS A REAL BUG, NOT A TEST
+# ARTEFACT: denote.la:41 still defined the RETRACTED binary LOVE, so that
+# spelling was still literally the old symmetrization. denote.la's primitive
+# block is declared "canonical in primitives.la" and had drifted from it —
+# LOOKUP was denoting a concept the rest of the arc had retracted. Fixed in the
+# same change. W_LOVE re-asks primitives_spec.la's own three LOVE tests of
+# denote.la's LOOKUP, so the two modules cannot disagree again unseen; it is the
+# witness that goes red on the silent defect.
+DEN_EXPECT="DENOTE ⊗-recovers-both[BEING,VOID]:pq | ↻(BEING)≡SELF-denotationally:T | nested-⊗(↻BEING,VOID):rs | ⊕-symmetric-both-orders[BEING,VOID]:pqrs | LOVE-leaf-is-the-generator:qfxffx"
 # ★ FIRST LINE, exact. denote.la grew items 3 and 4 (γ_g / r_D and the combination
 # law), so its output is now three lines and a whole-output equality test against
 # this one-line constant fails — correctly. It is NOT loosened to a substring
 # match: this gate still exact-matches ITS OWN line, and the item 3/4 lines are
 # exact-matched by the LA-arc gate above. Each assertion owns what it asserts.
-DENALL="$(./tiny_host denote.la 2>/dev/null)"
+DENALL="$(./tiny_host denote.la 2>/dev/null || true)"
 DENH="$(printf '%s\n' "$DENALL" | head -1)"
 [ "$DENH" = "$DEN_EXPECT" ] || { echo "FAIL  denote: host verdict wrong (got: $DENH)"; ok=0; }
 rm -f logos_secd logos_program.bin logos_source.la
 ./tiny_host secd.la >/dev/null 2>&1
 cp denote.la logos_source.la
 ./tiny_host codegen.la >/dev/null 2>&1
-DENVALL="$(./logos_secd 2>/dev/null)"
+DENVALL="$(./logos_secd 2>/dev/null || true)"
 DENV="$(printf '%s\n' "$DENVALL" | head -1)"
 [ "$DENV" = "$DEN_EXPECT" ] || { echo "FAIL  denote: native VM verdict wrong (got: $DENV)"; ok=0; }
 # host==VM compares the FULL output, not just the first line — the byte-identity
@@ -5920,7 +5951,7 @@ say "Arch root: ∃(∃)≡∃ as the root ontomonoglyph + the honest primitive-
 # gives THREE co-constitutive faces of the Archē (Being/Structure/Self-Application = BEING/
 # RELATION/DEPTH) and says the operator chain ∂→δ→γ→ρ→𝔄 is a PROCESS not a catalogue — so
 # the nine are NOT forced into the chain. Result: 3 derive (SELF⟵BEING, RECOGNITION⟵RELATION
-# =ρ, LOVE⟵RELATION), 6 UNDERIVED; etymology sealed + recoverable.
+# =ρ, LOVE⟵RELATION as the generator), 6 UNDERIVED; etymology sealed + recoverable.
 # ★ RE-TAGGED 2026-08-26 per Erik's ruling of 2026-08-24 (LA_ARC_NEXT R-C): the six were
 # formerly reported here as "co-primitive", which read as a SETTLED FINDING. They are THE
 # GAP — an incompleteness to close, not a fact to report. Each of the six must end as
@@ -5933,25 +5964,25 @@ check_arch () {  # $1 = engine label, $2 = output file
     grep -qF 'root identity ∃(∃) ≡ ∃ holds ? YES' "$2"                              || { echo "FAIL  archroot($1): the root identity ∃(∃)≡∃ does not hold"; ok=0; }
     grep -qF 'derives? YES  seal ↻(∃)' "$2"                                          || { echo "FAIL  archroot($1): SELF⟵BEING derivation (∃(∃)) not verified"; ok=0; }
     grep -qF 'derives? YES  seal ↻(Relation)' "$2"                                   || { echo "FAIL  archroot($1): RECOGNITION⟵RELATION (ρ, reflexive) not verified"; ok=0; }
-    grep -qF 'derives? YES  seal ⊕(⊗(a,b),⊗(b,a))' "$2"                              || { echo "FAIL  archroot($1): LOVE⟵RELATION (symmetrized) not verified"; ok=0; }
+    grep -qF 'derives? YES  seal ⊗(Relation,Becoming)' "$2"                          || { echo "FAIL  archroot($1): LOVE⟵RELATION (the generator) not verified"; ok=0; }
     grep -qF "BEING  RELATION  DEPTH   = B&B's three faces (Being/Structure/Self-Application)  autology? YES" "$2" || { echo "FAIL  archroot($1): the three underived faces (BEING/RELATION/DEPTH) not exhibited"; ok=0; }
     grep -qF 'etymology contained & recoverable from each sealed derived glyph ? YES' "$2" || { echo "FAIL  archroot($1): sealed etymology not recoverable (Sealing broken)"; ok=0; }
     grep -qF 'only rho fits a glyph (RECOGNITION) ? YES' "$2"                         || { echo "FAIL  archroot($1): operator-chain honesty (ρ→RECOGNITION) not exhibited"; ok=0; }
     grep -qF 'VERDICT: 3 of 9 derive (SELF, RECOGNITION, LOVE); 6 UNDERIVED' "$2"  || { echo "FAIL  archroot($1): the 3-derive/6-UNDERIVED(THE GAP) verdict missing"; ok=0; }
 }
 rm -f arch_host.out arch_vm.out
-./tiny_host archroot.la > arch_host.out 2>/dev/null
+./tiny_host archroot.la > arch_host.out 2>/dev/null || true
 check_arch "C host" arch_host.out
 rm -f logos_secd logos_program.bin logos_source.la
 ./tiny_host secd.la >/dev/null 2>&1
 cp archroot.la logos_source.la
 ./tiny_host codegen.la >/dev/null 2>&1
-./logos_secd > arch_vm.out 2>/dev/null
+./logos_secd > arch_vm.out 2>/dev/null || true
 check_arch "native VM" arch_vm.out
 cmp -s arch_host.out arch_vm.out || { echo "FAIL  archroot: native derivation != C host derivation"; ok=0; }
 rm -f arch_host.out arch_vm.out logos_secd logos_program.bin logos_source.la
 if [ "$ok" -eq 1 ]; then
-    echo "PASS  archroot: ∃(∃)≡∃ (I AM THAT I AM) established as the root ontomonoglyph (autological meta-Ren); the primitive-derivation chain verified BY REDUCTION — 3 of 9 genuinely derive (SELF⟵BEING via self-application, RECOGNITION⟵RELATION = operator ρ, LOVE⟵RELATION symmetrized), 6 are UNDERIVED — THE GAP per Erik's ruling 2026-08-24, not a settled result (BEING/RELATION/DEPTH = B&B's three faces of the Archē, + VOID/FORM/BECOMING); derivation from the root IS attempted — in archderive.la, in this same build: BEING resolves as the root itself and the other five are AXIOMS with the seam stated; etymology sealed + recoverable; the operator chain ∂→δ→γ→ρ→𝔄 is a process not a catalogue (not forced); byte-identical on host and native VM"
+    echo "PASS  archroot: ∃(∃)≡∃ (I AM THAT I AM) established as the root ontomonoglyph (autological meta-Ren); the primitive-derivation chain verified BY REDUCTION — 3 of 9 genuinely derive (SELF⟵BEING via self-application, RECOGNITION⟵RELATION = operator ρ, LOVE⟵RELATION as the codex generator x ↦ (x, becoming x) — realigned 2026-09-06 from the symmetrized reading, which was a different concept and now lives in denote.la as ⊕'s own denotation), 6 are UNDERIVED — THE GAP per Erik's ruling 2026-08-24, not a settled result (BEING/RELATION/DEPTH = B&B's three faces of the Archē, + VOID/FORM/BECOMING); derivation from the root IS attempted — in archderive.la, in this same build: BEING resolves as the root itself and the other five are AXIOMS with the seam stated; etymology sealed + recoverable; the operator chain ∂→δ→γ→ρ→𝔄 is a process not a catalogue (not forced); byte-identical on host and native VM"
 else
     exit 1
 fi
@@ -5988,7 +6019,7 @@ check_arcd () {  # $1 = engine label, $2 = output file
     grep -qF 'VERDICT: of the six, BEING is the root itself' "$2"                || { echo "FAIL  archderive($1): verdict line absent — the module HALTED mid-run, so every check above passed on a partial file"; ok=0; }
 }
 rm -f arcd_host.out arcd_vm.out
-./tiny_host archderive.la > arcd_host.out 2>&1; ARCD_RC=$?
+ARCD_RC=0; ./tiny_host archderive.la > arcd_host.out 2>&1 || ARCD_RC=$?
 [ "$ARCD_RC" = "0" ] || { echo "FAIL  archderive: host run exited $ARCD_RC (want 0); last line: $(tail -1 arcd_host.out)"; ok=0; }
 check_arcd "C host" arcd_host.out
 # Sovereign: the same attempt on the native VM, byte-identical.
