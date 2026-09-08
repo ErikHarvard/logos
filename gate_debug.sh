@@ -23,8 +23,8 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
-EXPECT_AGREE=9
-EXPECT_BREAK=5
+EXPECT_AGREE=11
+EXPECT_BREAK=7
 
 command -v timeout >/dev/null 2>&1 || { echo "SKIP  debug: timeout(1) absent"; exit 0; }
 [ -f debug_eval.la ] || { echo "FAIL  debug: debug_eval.la missing"; exit 1; }
@@ -40,7 +40,11 @@ if [ "$lines" -lt 20 ]; then
 fi
 
 agree=$(printf '%s\n' "$H" | grep -c '^AGREE')
-brk_total=$(printf '%s\n' "$H" | grep -c '!! BREAK')
+#   A breakpoint now reports TWO projections (slice 3), so they are
+#   counted separately and required to pair up — a break that printed one
+#   without the other would otherwise satisfy every count below.
+brk_env=$(printf '%s\n' "$H" | grep -c '!! BREAK .* env:')
+brk_bt=$(printf '%s\n' "$H" | grep -c '!! BREAK .* bt:')
 diverged=$(printf '%s\n' "$H" | grep -c '^DIVERGED')
 if [ "$diverged" -ne 0 ]; then
     echo "FAIL  debug 1: $diverged program(s) DIVERGED — tracing changed the answer:"
@@ -114,35 +118,83 @@ elif [ "$neg_brk" -ne 0 ]; then
     echo "FAIL  debug 3: BRK_VAR(\"nosuchvar\") fired $neg_brk time(s) — the predicate matches nodes it should not"; ok=0
 elif [ "$brk3_ok" -ne 1 ]; then
     :   # a required breakpoint line was already reported missing above
-elif [ "$brk_total" -ne "$EXPECT_BREAK" ]; then
-    echo "FAIL  debug 3: $brk_total breakpoint lines, expected $EXPECT_BREAK — a breakpoint case silently stopped firing"; ok=0
+elif [ "$brk_env" -ne "$EXPECT_BREAK" ]; then
+    echo "FAIL  debug 3: $brk_env breakpoint env lines, expected $EXPECT_BREAK — a breakpoint case silently stopped firing"; ok=0
+elif [ "$brk_bt" -ne "$brk_env" ]; then
+    echo "FAIL  debug 3: $brk_env env lines but $brk_bt bt lines — a breakpoint reported one projection without the other"; ok=0
 else
-    echo "PASS  debug 3: breakpoints fire exactly where armed ($brk_total lines: bound value, shadowed pair innermost-first, 3 at depth 1) and not at all on a name that does not occur, while all $EXPECT_AGREE programs still AGREE"
+    echo "PASS  debug 3: breakpoints fire exactly where armed ($brk_env, each reporting both env and bt: bound value, shadowed pair innermost-first, 3 at depth 1) and not at all on a name that does not occur, while all $EXPECT_AGREE programs still AGREE"
 fi
 
-# ── 4. host == VM ──────────────────────────────────────────────────────────
+# ── 4. the call stack is DYNAMIC, not the environment relabelled ───────────
+#   SRC_DYN is built so the two projections MUST disagree: MK captures v
+#   and returns a closure; USE applies that closure somewhere MK never
+#   mentions. At `v` the environment is MK's (lexical) and the call chain
+#   is USE's (dynamic). Asserting only the presence of a plausible bt line
+#   would not discriminate — a "backtrace" quietly rendered from the env
+#   chain prints something equally plausible — so the ABSENCE is asserted
+#   too: MK bound the value that is in scope and must NOT be on the stack,
+#   because it already returned.
+stk4_ok=1
+need_stk() {
+    printf '%s\n' "$H" | grep -qF "$1" || { echo "FAIL  debug 4: expected stack line missing: '$1'"; ok=0; stk4_ok=0; }
+}
+need_stk "!! BREAK VAR env: q=str:arg, v=str:cap"
+need_stk "!! BREAK VAR bt: q <- f <- MAIN"
+
+dyn_sec=$(printf '%s\n' "$H" | awk '/^--- stack: lexical/{f=1;next} /^--- stack: /{f=0} f')
+dyn_lines=$(printf '%s\n' "$dyn_sec" | grep -c .)
+#   ★ THE DISCRIMINATOR IS `v`, not MK. `v` is the name that IS in the
+#   environment at the breakpoint, so a bt rendered from the env chain
+#   prints it and a bt built from calls cannot. MK is checked too (it
+#   defined the closure and had already returned), but `v` is the one an
+#   env-derived backtrace actually gets wrong.
+dyn_bt=$(printf '%s\n' "$dyn_sec" | grep '!! BREAK .* bt:')
+dyn_mk=$(printf '%s\n' "$dyn_bt" | grep -cE '(: |<- )(v|MK)( |$)')
+#   The no-invention half, the counterpart of check 3's must-not-fire: a
+#   program that calls nothing must show exactly the one frame the runner
+#   entered. A " <- " in that bt line means a frame was pushed by
+#   something that is not a call.
+top_sec=$(printf '%s\n' "$H" | awk '/^--- stack: no calls/{f=1;next} /^--- stack: /{f=0} f')
+top_bt=$(printf '%s\n' "$top_sec" | grep '!! BREAK .* bt:')
+top_extra=$(printf '%s\n' "$top_bt" | grep -c ' <- ')
+if [ "$dyn_lines" -lt 5 ]; then
+    echo "FAIL  debug 4: the lexical-vs-dynamic section has only $dyn_lines lines — it did not run, so its absences prove nothing"; ok=0
+elif [ "$dyn_mk" -ne 0 ]; then
+    echo "FAIL  debug 4: the call stack names a lexical binder ($dyn_bt) — v is in the ENVIRONMENT at this breakpoint and MK had already returned, so a bt naming either is the env chain relabelled, not the call chain"; ok=0
+elif [ -z "$top_bt" ]; then
+    echo "FAIL  debug 4: no bt line in the no-calls section — cannot judge the frame count"; ok=0
+elif [ "$top_extra" -ne 0 ]; then
+    echo "FAIL  debug 4: the no-calls program shows more than one frame ($top_bt) — a frame was pushed by something that is not a call"; ok=0
+elif [ "$stk4_ok" -ne 1 ]; then
+    :   # a required stack line was already reported missing above
+else
+    echo "PASS  debug 4: env and bt genuinely disagree (v is bound lexically by MK, absent from the dynamic chain q <- f <- MAIN) and a call-free program shows exactly one frame"
+fi
+
+# ── 5. host == VM ──────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 4: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 5: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 4: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 5: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 4: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 5: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 4: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 5: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 4: host and VM disagree"
+                echo "FAIL  debug 5: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

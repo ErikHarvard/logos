@@ -4836,7 +4836,11 @@ bash kernel/gate_k5b2.sh || exit 1
 # The evaluator watching itself: DEBUG_EVAL reproduces EVAL's dispatch (it
 # cannot wrap it — EVAL's recursion is internal to its own Z, so a wrapper sees
 # only the outermost node) and emits enter/reduce lines plus, at a breakpoint,
-# the ENVIRONMENT in force. A reproduced evaluator can DRIFT from the one it
+# the ENVIRONMENT in force and the CALL STACK that reached it. Those two are
+# not the same question — env is lexical (the scope a closure was made in),
+# bt is dynamic (the calls control actually took) — so a closure applied far
+# from where it was defined makes them disagree, and neither is derivable from
+# the other. A reproduced evaluator can DRIFT from the one it
 # claims to trace, and drift is invisible: the trace still looks plausible while
 # describing a reduction that never happened. So the gate's load-bearing
 # assertion is that DEBUG_EVAL and EVAL AGREE on every program's result, with

@@ -25,6 +25,16 @@
 #  RESULT for every program tested. Tracing must not change the answer.
 #  This file imports eval.la rather than copying its helpers, so only the
 #  dispatch is duplicated, and the duplication is what the gate watches.
+#
+#  ── THE TWO PROJECTIONS AT A BREAKPOINT ─────────────────────────────
+#  A breakpoint reports both of the things a debugger is asked for, and
+#  they are not the same thing:
+#      env:  what is bound here  — LEXICAL, the scope a closure was made in
+#      bt:   how control got here — DYNAMIC, the chain of calls taken
+#  For a closure applied far from where it was defined the two genuinely
+#  disagree, and neither can be derived from the other. That is why the
+#  stack is threaded rather than reconstructed from the environment, and
+#  why the gate asserts the disagreement on a program built to force it.
 # ═════════════════════════════════════════════════════════════════════
 
 import("eval.la")
@@ -92,6 +102,37 @@ glyph SHOW_ENV = Z(la self. la env.
         )(ENV_TAIL(env))
     )(la _. "<empty>"))
 
+# ── the CALL STACK, rendered ─────────────────────────────────────────
+#   ★ THE QUESTION THE ENVIRONMENT CANNOT ANSWER. env is LEXICAL: under
+#   APP the body runs in CONS(binding)(e) where `e` is the CLOSURE's
+#   captured environment — the scope it was DEFINED in. The call stack is
+#   DYNAMIC: it is the chain of calls control actually took to get here.
+#   For a closure applied far from where it was made, those two genuinely
+#   disagree, and neither is derivable from the other. That disagreement
+#   is what slice 3 asserts, because a "backtrace" quietly rendered from
+#   the environment would look right on every program where they happen
+#   to coincide.
+#
+#   A frame is pushed by the two acts that ARE calls — entering a glyph
+#   body (frame = the glyph name) and entering a closure body (frame =
+#   the parameter). Evaluating a function or an argument is not a call
+#   and pushes nothing.
+#
+#   Innermost first, the same order as SHOW_ENV, so the two lines of one
+#   breakpoint read down the same axis. ENV_MORE/ENV_HEAD/ENV_TAIL are
+#   the generic CONS-list accessors — a frame list is a list of plain
+#   strings, so it needs no SHOW_BINDING.
+glyph SHOW_STK = Z(la self. la stk.
+    IF(ENV_MORE(stk))(la _.
+        (la rest.
+            IF(ENV_MORE(rest))(la _.
+                concat(ENV_HEAD(stk))(concat(" <- ")(self(rest)))
+            )(la _.
+                ENV_HEAD(stk)
+            )
+        )(ENV_TAIL(stk))
+    )(la _. "<empty>"))
+
 # ── indentation by depth ─────────────────────────────────────────────
 glyph IND = Z(la self. la n.
     IF(int_eq(n)(0))(la _. "")(la _. concat("  ")(self(sub(n)(1)))))
@@ -106,8 +147,13 @@ glyph LEAVE = la d. la ast. la result.
 #   A tracer answers "what ran". A debugger has to answer "what was it
 #   bound to WHEN it ran" — so a breakpoint reports the ENVIRONMENT that
 #   was in force at the node, which the trace lines never show.
-glyph BREAK = la d. la ast. la env.
-    print(concat(IND(d))(concat("!! BREAK ")(concat(AST_KIND(ast))(concat(" env: ")(SHOW_ENV(env))))))
+#   TWO LINES, not one merged line: the env assertion slice 2 already
+#   rests on stays byte-identical, so slice 3 cannot silently invalidate
+#   the check that guards slice 2.
+glyph BREAK = la d. la ast. la env. la stk.
+    SEQ(
+    print(concat(IND(d))(concat("!! BREAK ")(concat(AST_KIND(ast))(concat(" env: ")(SHOW_ENV(env)))))))(
+    print(concat(IND(d))(concat("!! BREAK ")(concat(AST_KIND(ast))(concat(" bt: ")(SHOW_STK(stk)))))))
 
 # ── breakpoint predicates — (depth -> ast -> Church bool) ────────────
 #   The tracer takes the predicate as a parameter, so a new kind of
@@ -126,9 +172,9 @@ glyph BRK_DEPTH = la n.    la d. la ast. int_eq(d)(n)
 #   — which is exactly what is wanted here: enter, reduce, then report
 #   the value. Writing the LEAVE line "after" the body in the source
 #   would not have ordered it; the binder does.
-glyph DEBUG_EVAL_BRK = la brk. Z(la self. la d. la ast. la env. la gl.
+glyph DEBUG_EVAL_BRK = la brk. Z(la self. la d. la ast. la env. la stk. la gl.
     SEQ(ENTER(d)(ast))(
-    SEQ(IF(brk(d)(ast))(la _. BREAK(d)(ast)(env))(la _. ""))(
+    SEQ(IF(brk(d)(ast))(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(
     (la result.
         SEQ(LEAVE(d)(ast)(result))(result)
     )(
@@ -141,7 +187,7 @@ glyph DEBUG_EVAL_BRK = la brk. Z(la self. la d. la ast. la env. la gl.
                     )(la _.
                     (la found.
                         IF(IS_SOME(found))(la _.
-                            self(add(d)(1))(R_VAL(found))(NIL)(gl)
+                            self(add(d)(1))(R_VAL(found))(NIL)(CONS(name)(stk))(gl)
                         )(la _.
                         IF(IS_BI_NAME(name))(la _.
                             VAL_BI(name)
@@ -164,19 +210,19 @@ glyph DEBUG_EVAL_BRK = la brk. Z(la self. la d. la ast. la env. la gl.
                         )
                         (la p. la b. la e.
                             (la aval.
-                                self(add(d)(1))(b)(CONS(PAIR(p)(aval))(e))(gl)
-                            )(self(add(d)(1))(arg)(env)(gl))
+                                self(add(d)(1))(b)(CONS(PAIR(p)(aval))(e))(CONS(p)(stk))(gl)
+                            )(self(add(d)(1))(arg)(env)(stk)(gl))
                         )
                         (la biname.
-                            APPLY_BI(biname)(self(add(d)(1))(arg)(env)(gl))
+                            APPLY_BI(biname)(self(add(d)(1))(arg)(env)(stk)(gl))
                         )
                         (la paname. la pv.
-                            APPLY_BI2(paname)(pv)(self(add(d)(1))(arg)(env)(gl))
+                            APPLY_BI2(paname)(pv)(self(add(d)(1))(arg)(env)(stk)(gl))
                         )
                         (la n.
                             error(concat("debug_eval: cannot apply integer: ")(int_to_str(n)))
                         )
-                )(self(add(d)(1))(func)(env)(gl))
+                )(self(add(d)(1))(func)(env)(stk)(gl))
             )
             # ── STR(val) — a value already ──
             (la val. VAL_STR(val))
@@ -193,7 +239,7 @@ glyph DEBUG_EVAL = DEBUG_EVAL_BRK(BRK_NONE)
 glyph DEBUG_RUN_BRK = la brk. la name. la gl.
     (la found.
         IF(IS_SOME(found))(la _.
-            DEBUG_EVAL_BRK(brk)(0)(R_VAL(found))(NIL)(gl)
+            DEBUG_EVAL_BRK(brk)(0)(R_VAL(found))(NIL)(CONS(name)(NIL))(gl)
         )(la _.
             error(concat("debug_eval: no glyph: ")(name))
         )
@@ -261,4 +307,34 @@ glyph MAIN_BREAK = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(
     print("--- break: at depth 1 ---")))(
     print(AGREES_BRK(BRK_DEPTH(1))(SRC_BIND)))
 
-glyph MAIN = SEQ(MAIN_TRACE)(MAIN_BREAK)
+# ── slice 3 programs — the call stack ────────────────────────────────
+#   ★ SRC_DYN IS THE WHOLE SLICE. It is built so the environment and the
+#   call stack must disagree, because that is the only way to prove the
+#   backtrace is not the environment wearing a different label:
+#
+#       glyph MK   = la v. la q. v      MK captures v and returns a closure
+#       glyph USE  = la f. f("arg")     USE applies whatever it is handed
+#       glyph MAIN = USE(MK("cap"))
+#
+#   At `v` inside the innermost body, the two projections are:
+#       env: q=str:arg, v=str:cap       — v came LEXICALLY from MK
+#       bt:  q <- f <- MAIN             — control came DYNAMICALLY via USE
+#
+#   `v` is bound and visible, yet neither `v` nor `MK` is on the stack:
+#   MK ran, returned its closure and left, and the closure was applied
+#   somewhere it never mentions. A backtrace derived from the env chain
+#   would name MK here; this one must not, and the gate asserts the
+#   absence as well as the presence.
+glyph SRC_DYN = "glyph MK = la v. la q. v\nglyph USE = la f. f(\"arg\")\nglyph MAIN = USE(MK(\"cap\"))"
+
+glyph MAIN_STACK = SEQ(SEQ(SEQ(
+    print("--- stack: lexical env vs dynamic call chain ---"))(
+    print(AGREES_BRK(BRK_VAR("v"))(SRC_DYN))))(
+    #   The must-not-invent half, the counterpart of slice 2's
+    #   must-not-fire: at depth 0 of a program that calls nothing, the
+    #   stack is exactly the one glyph the runner entered. A frame count
+    #   that drifts up shows here and nowhere else.
+    print("--- stack: no calls, exactly one frame ---")))(
+    print(AGREES_BRK(BRK_DEPTH(0))(SRC_STR)))
+
+glyph MAIN = SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK)
