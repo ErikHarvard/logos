@@ -4846,6 +4846,15 @@ bash kernel/gate_k5b2.sh || exit 1
 # assertion is that DEBUG_EVAL and EVAL AGREE on every program's result, with
 # breakpoints armed — observing must not change the answer.
 #
+# Slice 4 makes those two projections DECIDE rather than display: a breakpoint
+# predicate now takes (depth, ast, env, stk), so BRK_CALLER can break at a name
+# ONLY when control reached it through a given frame. Until then the stack was
+# threaded and printed and nothing read it, so a fault in it could only look
+# wrong; now it changes which nodes break. The gate runs the unconditioned
+# predicate on the same program as a control and requires the conditional to
+# fire strictly less often — a conditional that stopped reading the stack still
+# fires, still prints a plausible backtrace, and still agrees.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide

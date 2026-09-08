@@ -162,9 +162,45 @@ glyph BREAK = la d. la ast. la env. la stk.
 #   because a duplicated evaluator can drift from the one it traces, and
 #   forking the dispatch per breakpoint kind would reintroduce exactly
 #   the hazard the gate is watching for.
-glyph BRK_NONE  = la d. la ast. FALSE
-glyph BRK_VAR   = la name. la d. la ast. str_eq(AST_VARNAME(ast))(name)
-glyph BRK_DEPTH = la n.    la d. la ast. int_eq(d)(n)
+#   ★ SLICE 4 WIDENS THE PREDICATE FROM (d, ast) TO (d, ast, env, stk).
+#   Until now the stack was DISPLAY: it was threaded and printed and nothing
+#   decided on it, so a bug in it could only ever produce a wrong-looking
+#   line. Feeding it to the predicate makes it DECIDE — a wrong stack now
+#   changes WHICH nodes break, which is a behavioural fault the agreement
+#   and count checks can catch. The same applies to env. Both projections a
+#   breakpoint reports are now also inputs it can be conditioned on.
+glyph BRK_NONE  = la d. la ast. la env. la stk. FALSE
+glyph BRK_VAR   = la name. la d. la ast. la env. la stk. str_eq(AST_VARNAME(ast))(name)
+glyph BRK_DEPTH = la n.    la d. la ast. la env. la stk. int_eq(d)(n)
+
+# ── is a frame anywhere on the call stack? ───────────────────────────
+glyph STK_HAS = la f. Z(la self. la stk.
+    IF(ENV_MORE(stk))(la _.
+        IF(str_eq(ENV_HEAD(stk))(f))(la _. TRUE)(la _. self(ENV_TAIL(stk)))
+    )(la _. FALSE))
+
+# ── CONDITIONAL breakpoints — the point of the slice ─────────────────
+#   BRK_CALLER is the one only slice 3 makes possible: break at a name
+#   ONLY when control reached it through a given frame. The SAME node,
+#   reached two ways, breaks once. A predicate that ignored the stack
+#   would fire on both and would be indistinguishable from BRK_VAR — so
+#   the gate runs BRK_VAR on the same program as the control and requires
+#   it to fire MORE often.
+glyph BRK_CALLER = la name. la f. la d. la ast. la env. la stk.
+    IF(str_eq(AST_VARNAME(ast))(name))(la _. STK_HAS(f)(stk))(la _. FALSE)
+
+#   BRK_WHEN is the env-conditional counterpart: break at a name only when
+#   it is BOUND to a given value. The comparison goes through SHOW_VAL, the
+#   same renderer AGREES compares, rather than a second destructuring that
+#   could fall out of step with it.
+glyph BRK_WHEN = la name. la val. la d. la ast. la env. la stk.
+    IF(str_eq(AST_VARNAME(ast))(name))(la _.
+        (la found.
+            IF(IS_SOME(found))(la _.
+                str_eq(SHOW_VAL(R_VAL(found)))(concat("str:")(val))
+            )(la _. FALSE)
+        )(LIST_FIND(name)(env))
+    )(la _. FALSE)
 
 # ── DEBUG_EVAL — EVAL's dispatch, with the two trace lines around it ──
 #   ★ ORDER IS STRUCTURE, NOT STATEMENT SEQUENCE. `(la result. …)(body)`
@@ -174,7 +210,7 @@ glyph BRK_DEPTH = la n.    la d. la ast. int_eq(d)(n)
 #   would not have ordered it; the binder does.
 glyph DEBUG_EVAL_BRK = la brk. Z(la self. la d. la ast. la env. la stk. la gl.
     SEQ(ENTER(d)(ast))(
-    SEQ(IF(brk(d)(ast))(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(
+    SEQ(IF(brk(d)(ast)(env)(stk))(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(
     (la result.
         SEQ(LEAVE(d)(ast)(result))(result)
     )(
@@ -337,4 +373,37 @@ glyph MAIN_STACK = SEQ(SEQ(SEQ(
     print("--- stack: no calls, exactly one frame ---")))(
     print(AGREES_BRK(BRK_DEPTH(0))(SRC_STR)))
 
-glyph MAIN = SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK)
+# ── slice 4 programs — conditional breakpoints ───────────────────────
+#   ★ SRC_TWO REACHES ONE NODE BY TWO ROUTES. ID's body is a single
+#   `VAR x`, and it is entered twice — once through A, once through B:
+#
+#       glyph ID   = la x. x
+#       glyph A    = ID("from-a")
+#       glyph B    = ID("from-b")
+#       glyph MAIN = concat(A)(B)
+#
+#   So `VAR x` breaks with bt `x <- A <- MAIN` on one visit and
+#   `x <- B <- MAIN` on the other. That is what makes the conditional
+#   testable at all: a predicate that reads the stack fires ONCE, one that
+#   ignores it fires TWICE, and the two are otherwise identical. The gate
+#   runs plain BRK_VAR("x") on the SAME program as the control and
+#   requires it to fire strictly more often — without that control, a
+#   BRK_CALLER that had silently degraded to BRK_VAR would still look
+#   right on a program where the name happened to occur once.
+glyph SRC_TWO = "glyph ID = la x. x\nglyph A = ID(\"from-a\")\nglyph B = ID(\"from-b\")\nglyph MAIN = concat(A)(B)"
+
+glyph MAIN_COND = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(
+    #   The control: unconditioned, fires on BOTH visits.
+    print("--- cond: BRK_VAR x, the control — must fire on BOTH routes ---"))(
+    print(AGREES_BRK(BRK_VAR("x"))(SRC_TWO))))(
+    #   Stack-conditional: the same node, only the route through A.
+    print("--- cond: BRK_CALLER x via A — same node, one route ---")))(
+    print(AGREES_BRK(BRK_CALLER("x")("A"))(SRC_TWO))))(
+    #   The must-not-fire half: a frame that is never on the stack.
+    print("--- cond: BRK_CALLER x via NOSUCH — must NOT fire ---")))(
+    print(AGREES_BRK(BRK_CALLER("x")("NOSUCH"))(SRC_TWO))))(
+    #   Env-conditional: the same node, only the visit where x is from-b.
+    print("--- cond: BRK_WHEN x = from-b — same node, one binding ---")))(
+    print(AGREES_BRK(BRK_WHEN("x")("from-b"))(SRC_TWO)))
+
+glyph MAIN = SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND)

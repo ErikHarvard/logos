@@ -16,15 +16,35 @@
 # SLICE 2 (breakpoints + environment inspection) extends that same assertion
 # rather than adding a separate one: every breakpoint program is run through
 # the agreement check WITH THE BREAKPOINT ARMED, because a breakpoint reads
-# the environment and must not perturb it either. Check 4 then asks the two
+# the environment and must not perturb it either. Check 3 then asks the two
 # questions agreement cannot: does the breakpoint fire WHERE it should, and
 # — the half that is easy to forget — does it fire NOWHERE ELSE. A predicate
 # that is accidentally always-true still agrees on every answer.
+# (That was "Check 4" until slice 3 inserted a check ahead of it. A stale
+# cross-reference in a gate's own header is the cheapest kind of drift and
+# the easiest to leave: nothing executes it, so nothing catches it.)
+#
+# SLICE 3 (the call stack) adds the second projection a breakpoint reports:
+# env answers "what is bound here" (LEXICAL — the scope a closure was made
+# in), bt answers "how did control get here" (DYNAMIC). Neither is derivable
+# from the other, so check 4 asserts they DISAGREE on a program built to
+# force them apart, and asserts the ABSENCE of the lexical binder from the
+# chain as well as the presence of the call chain — the absence is the only
+# half a backtrace secretly rendered from the environment would fail.
+#
+# SLICE 4 (conditional breakpoints) makes those projections DECIDE rather
+# than merely display. Until it, the stack was threaded and printed and
+# nothing read it, so a fault in it could only produce a wrong-looking line;
+# BRK_CALLER conditions the break ON it, so a fault now changes WHICH nodes
+# break. Check 5 runs the unconditioned predicate on the same program as a
+# CONTROL and requires the conditional to fire strictly less often — a
+# BRK_CALLER degraded to BRK_VAR still fires, still prints a plausible bt,
+# and still agrees, so the count relation is the only thing separating them.
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
-EXPECT_AGREE=11
-EXPECT_BREAK=7
+EXPECT_AGREE=15
+EXPECT_BREAK=11
 
 command -v timeout >/dev/null 2>&1 || { echo "SKIP  debug: timeout(1) absent"; exit 0; }
 [ -f debug_eval.la ] || { echo "FAIL  debug: debug_eval.la missing"; exit 1; }
@@ -107,7 +127,13 @@ need_brk "!! BREAK VAR env: x=str:inner, x=str:outer"
 #   The negative half. A predicate that never says no is indistinguishable
 #   from a working one by every check above — it fires on the lines we asked
 #   for, and agreement still holds because breaking does not change answers.
-neg_sec=$(printf '%s\n' "$H" | awk '/^--- break: VAR nosuchvar/{f=1;next} /^--- break: /{f=0} f')
+#   ★ THE TERMINATOR MATCHES ANY SECTION HEADER, not this section's own
+#   prefix. Terminating on `/^--- break: /` meant appending a section with a
+#   different prefix silently EXTENDED this one — slice 4's `--- cond:`
+#   sections did exactly that to check 4 and turned it red. A section
+#   extractor anchored to the names that existed when it was written is a
+#   gate that breaks the next time anyone appends to the program.
+neg_sec=$(printf '%s\n' "$H" | awk '/^--- break: VAR nosuchvar/{f=1;next} /^--- /{f=0} f')
 neg_lines=$(printf '%s\n' "$neg_sec" | grep -c .)
 neg_brk=$(printf '%s\n' "$neg_sec" | grep -c '!! BREAK')
 if [ "$neg_lines" -lt 5 ]; then
@@ -142,7 +168,7 @@ need_stk() {
 need_stk "!! BREAK VAR env: q=str:arg, v=str:cap"
 need_stk "!! BREAK VAR bt: q <- f <- MAIN"
 
-dyn_sec=$(printf '%s\n' "$H" | awk '/^--- stack: lexical/{f=1;next} /^--- stack: /{f=0} f')
+dyn_sec=$(printf '%s\n' "$H" | awk '/^--- stack: lexical/{f=1;next} /^--- /{f=0} f')
 dyn_lines=$(printf '%s\n' "$dyn_sec" | grep -c .)
 #   ★ THE DISCRIMINATOR IS `v`, not MK. `v` is the name that IS in the
 #   environment at the breakpoint, so a bt rendered from the env chain
@@ -155,7 +181,7 @@ dyn_mk=$(printf '%s\n' "$dyn_bt" | grep -cE '(: |<- )(v|MK)( |$)')
 #   program that calls nothing must show exactly the one frame the runner
 #   entered. A " <- " in that bt line means a frame was pushed by
 #   something that is not a call.
-top_sec=$(printf '%s\n' "$H" | awk '/^--- stack: no calls/{f=1;next} /^--- stack: /{f=0} f')
+top_sec=$(printf '%s\n' "$H" | awk '/^--- stack: no calls/{f=1;next} /^--- /{f=0} f')
 top_bt=$(printf '%s\n' "$top_sec" | grep '!! BREAK .* bt:')
 top_extra=$(printf '%s\n' "$top_bt" | grep -c ' <- ')
 if [ "$dyn_lines" -lt 5 ]; then
@@ -172,29 +198,91 @@ else
     echo "PASS  debug 4: env and bt genuinely disagree (v is bound lexically by MK, absent from the dynamic chain q <- f <- MAIN) and a call-free program shows exactly one frame"
 fi
 
-# ── 5. host == VM ──────────────────────────────────────────────────────────
+# ── 5. CONDITIONAL breakpoints: the stack DECIDES, it does not just display ─
+#   Until slice 4 the call stack was display-only — threaded and printed,
+#   with nothing deciding on it, so a wrong stack could only ever produce a
+#   wrong-looking line. BRK_CALLER conditions the break ON it, which makes a
+#   stack fault change WHICH nodes break. SRC_TWO reaches ONE node (`VAR x`
+#   in ID's body) by TWO routes, through A and through B.
+#
+#   ★ THE CONTROL IS LOAD-BEARING AND IS RUN ON THE SAME PROGRAM. A
+#   BRK_CALLER that had silently degraded to plain BRK_VAR would still fire,
+#   still print a plausible bt, and still AGREE. The only thing that
+#   separates them is that the unconditioned predicate must fire STRICTLY
+#   MORE OFTEN on this program. Asserting the conditional's count alone
+#   would be the inert-control mistake from slice 3 all over again.
+csec() { printf '%s\n' "$H" | awk -v s="$1" 'index($0,s){f=1;next} /^--- /{f=0} f'; }
+c_ctl=$(csec "BRK_VAR x, the control" | grep -c '!! BREAK .* env:')
+c_via=$(csec "BRK_CALLER x via A"     | grep -c '!! BREAK .* env:')
+c_nos_l=$(csec "BRK_CALLER x via NOSUCH" | grep -c .)
+c_nos=$(csec "BRK_CALLER x via NOSUCH" | grep -c '!! BREAK')
+c_whn=$(csec "BRK_WHEN x = from-b"    | grep -c '!! BREAK .* env:')
+cond5_ok=1
+need_cond() {
+    printf '%s\n' "$H" | grep -qF "$1" || { echo "FAIL  debug 5: expected conditional line missing: '$1'"; ok=0; cond5_ok=0; }
+}
+#   The stack-conditional picks the A route; the env-conditional picks the B
+#   route. Asserting BOTH pins them apart: a predicate that had degraded to
+#   "fire on the first visit" would select A in both cases.
+need_cond "!! BREAK VAR bt: x <- A <- MAIN"
+need_cond "!! BREAK VAR env: x=str:from-a"
+need_cond "!! BREAK VAR bt: x <- B <- MAIN"
+need_cond "!! BREAK VAR env: x=str:from-b"
+#   ★ EVALUATED UNCONDITIONALLY, not as an `elif`. Every STK_HAS defect I
+#   could construct that lets an ABSENT frame match also makes the PRESENT
+#   frame over-fire, so inside the chain this branch was always reported
+#   first by the relational check and never ran. Reachable in principle,
+#   shadowed in practice — the inert-control failure in another shape.
+if [ "$c_nos_l" -lt 3 ]; then
+    echo "FAIL  debug 5: the must-not-fire section has only $c_nos_l lines — it did not run, so '0 breakpoints' proves nothing"; ok=0; cond5_ok=0
+elif [ "$c_nos" -ne 0 ]; then
+    echo "FAIL  debug 5: BRK_CALLER(\"x\")(\"NOSUCH\") fired $c_nos time(s) — a frame that is never on the stack matched it"; ok=0; cond5_ok=0
+fi
+
+if [ "$c_ctl" -ne 2 ]; then
+    echo "FAIL  debug 5: the control BRK_VAR(\"x\") fired $c_ctl times, expected 2 — SRC_TWO is supposed to reach the SAME node by two routes, so the premise of the whole check is gone"; ok=0
+#   ★ THE RELATIONAL CHECK COMES FIRST BECAUSE IT IS THE LOAD-BEARING ONE.
+#   Written after the two exact-count tests it was UNREACHABLE — c_ctl is
+#   already pinned to 2 and c_via to 1, so `c_via >= c_ctl` could never be
+#   true, and the branch that states the actual claim of this check would
+#   have been dead code that reads as rigour. Ordered first, a BRK_CALLER
+#   that degrades to BRK_VAR fires it and gets the RIGHT diagnosis
+#   ("not filtering") rather than an off-by-count one.
+elif [ "$c_via" -ge "$c_ctl" ]; then
+    echo "FAIL  debug 5: the stack-conditional fired $c_via times and the unconditioned control $c_ctl — the conditional is not filtering, so it is indistinguishable from BRK_VAR and the stack is not deciding anything"; ok=0
+elif [ "$c_via" -ne 1 ]; then
+    echo "FAIL  debug 5: BRK_CALLER(\"x\")(\"A\") fired $c_via times, expected 1"; ok=0
+elif [ "$c_whn" -ne 1 ]; then
+    echo "FAIL  debug 5: BRK_WHEN(\"x\")(\"from-b\") fired $c_whn times, expected 1"; ok=0
+elif [ "$cond5_ok" -ne 1 ]; then
+    :   # a required conditional line was already reported missing above
+else
+    echo "PASS  debug 5: conditionals filter — same node reached twice, control fires $c_ctl, stack-conditional $c_via (route A), env-conditional $c_whn (route B), unmatched frame 0, all $EXPECT_AGREE programs still AGREE"
+fi
+
+# ── 6. host == VM ──────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 5: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 6: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 5: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 6: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 5: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 6: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 5: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 6: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 5: host and VM disagree"
+                echo "FAIL  debug 6: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that
