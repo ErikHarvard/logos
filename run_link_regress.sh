@@ -4,7 +4,11 @@
 # directly exercises the relocation resolver I changed.
 cd "$HOME/logos-b" || exit 1
 pass=0; fail=0
-for g in gate_link_reloc.sh gate_link.sh gate_link_nsec.sh gate_link_script.sh gate_link_e2e.sh gate_link_kernel.sh; do
+# ★ gate_link_layout.sh was MISSING from this list until 2026-09-08 — including
+# in the version committed that morning. It is the only build-reachable cover for
+# link_layout.la, and it had never been run by build.sh either, so the module had
+# no enforcement anywhere. Listed second: it is cheap (38 s) and fails fast.
+for g in gate_link_reloc.sh gate_link_layout.sh gate_link.sh gate_link_nsec.sh gate_link_script.sh gate_link_e2e.sh gate_link_kernel.sh; do
   [ -x "$g" ] || { echo "SKIP  $g (not executable)"; continue; }
   s=$(date +%s)
   out=$(timeout 3600 ./"$g" 2>&1)

@@ -2468,6 +2468,25 @@ say "LA linker: N objects -> a running ET_EXEC, no ld (link.la, track B)"
 # track's move. It works in its own .e2egate/ directory, so it does not race
 # the three gates above over the worktree's link_inputs.txt.
 ./gate_link_e2e.sh    || ok=0
+# gate_link_layout.sh — WIRED 2026-09-08, and it had NEVER been run by a build.
+# ★ MEASURED, not inferred: `git log -S gate_link_layout.sh -- build.sh` returns
+# NOTHING — it was not removed at some point, it was never added. Nothing else
+# invoked it either. And it is the ONLY build-reachable cover for
+# `link_layout.la`: nothing imports the module, and exactly two gates exercise
+# it — this one and gate_link_kernel.sh (deliberately on-demand, ~36 min). So a
+# committed 9 KB module had ZERO enforcement in the build — a regression in it
+# would have landed silently and green. (A bare `grep -l link_layout.la *.sh`
+# returns four scripts; the other two, gate_seam_asm_link.sh:25 and night3.sh:52,
+# only `cp` the file into a scratch dir and assert nothing — see LINKER.md.)
+# ★ It is not a weak gate; it is a gate nobody ran. Red path re-verified here
+# 2026-09-08 rather than taken from LINKER.md's record of it: perturbing
+# `link_layout.la:65` TEXT_BASE by ONE (4198400 -> 4198401) gives
+#   FAIL  link_layout.la: _start should be 4198400 (ld says 0x...401000);
+#         got: obj1 _start = 4198401
+# then restored and re-proved byte-identical to HEAD by hash. It discriminates
+# at single-byte resolution AND names the offending address.
+# Costs 23 s measured alone, 38 s under two concurrent builds — cheap either way.
+./gate_link_layout.sh || ok=0
 [ "$ok" -eq 1 ] || exit 1
 
 

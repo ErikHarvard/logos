@@ -970,3 +970,63 @@ Restored; `link_reloc.la` byte-identical to HEAD, verified by hash.
 **Both previously-unverified gates now have real red paths.** All eight gates
 this track owns have evidence: six pre-existing in this file or in commits, and
 these two added.
+
+## Slice 15 — the gate that had a red path and no runner (2026-09-08)
+
+The section above ends *"all eight gates this track owns have evidence."* True,
+and it turned out to be the wrong question. **`gate_link_layout.sh` had a
+documented, single-byte red path — and nothing anywhere ran it.**
+
+**Measured, not inferred:**
+
+    grep -c './gate_link_layout.sh' build.sh        -> 0
+    git log -S'gate_link_layout.sh' -- build.sh     -> NOTHING
+
+The second is the one that settles it: the gate was not wired and later removed,
+**it was never wired at all**, so there is no decision to recover and no comment
+explaining an exclusion. `run_link_regress.sh` omitted it too — including in the
+copy committed that same morning, by me.
+
+**★ AND IT IS THE ONLY BUILD-REACHABLE COVER FOR `link_layout.la`.** Nothing
+`import`s the module, so its only cover is what a gate runs. Exactly two gates
+exercise it: this one, and `gate_link_kernel.sh` (deliberately on-demand,
+~36 min, documented). So a committed 9 KB module had **zero enforcement in the
+build**: a regression in it would have landed silently, green, and no gate would
+have moved.
+
+*Do not read a bare `grep -l link_layout.la *.sh` as contradicting that.* It
+returns four scripts, and the other two are **not cover**:
+`gate_seam_asm_link.sh:25` and `night3.sh:52` merely name the file in a `cp`
+staging loop — they copy it into a scratch directory and never assert anything
+about it — and neither is wired into `build.sh` either. Checked 2026-09-08 by
+reading both call sites, not by counting grep hits.
+
+⇒ This is the mirror of the failures this file already records. A gate that
+cannot fail tests nothing; a gate that fails toward red can never pass; and a
+gate nobody runs tests nothing either — but it is *worse than both*, because the
+red-path evidence in this file reads as coverage. **Evidence that a gate
+discriminates is not evidence that it runs**, and the audit that produced the
+"all eight have evidence" line asked only the first question.
+
+**Red path re-verified here rather than inherited from the record above** — the
+same discipline this file demands of a bottleneck attribution:
+
+    baseline    PASS  link_layout.la: layout + cross-object resolution agree
+                      with ld (3 addresses, 1 negative gate)          [38 s]
+    perturbed   FAIL  link_layout.la: _start should be 4198400
+                      (ld says 0x0000000000401000); got:
+                        obj1 _start = 4198401
+    restored    blob 14b97468… == HEAD, verified by `git hash-object`
+
+`link_layout.la:65`, `TEXT_BASE 4198400 -> 4198401`. One byte; the gate names the
+offending address rather than merely failing.
+
+**Wired** into `build.sh` after `gate_link_e2e.sh`, and added to
+`run_link_regress.sh` (second, since it is cheap and fails fast). 23 s measured
+alone, 38 s under two concurrent builds — negligible against a multi-hour build
+either way, which is why no cost argument justified leaving it out.
+
+**⚠ `gate_link_kernel.sh` stays UNWIRED and that is deliberate** — ~36 min per
+link, documented on the board as on-demand. It is excluded for a stated reason;
+`gate_link_layout.sh` was excluded for none. Those are different situations and
+only one of them was a defect.
