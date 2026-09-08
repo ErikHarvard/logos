@@ -490,14 +490,19 @@ elif [ "$a1" != "str:from-a!" ] || [ "$a2" != "str:from-b!" ]; then
     echo "FAIL  debug 9: inspections were '$a1' and '$a2', expected 'str:from-a!' and 'str:from-b!'"; ok=0
 #   An expression naming a GLYPH rather than a local proves the table is
 #   threaded too — a stopped env alone cannot resolve ID.
-#   ★ HONEST SCOPE OF THE TWO BRANCHES BELOW. Both guard defects that turn
-#   out to be FATAL rather than wrong-answering: dropping the stopped env, or
-#   dropping the glyph table, leaves `x` / `ID` unbound, so EVAL halts and the
-#   whole run dies — caught by check 1's "did not complete" guard, not here. I
-#   could not construct a non-fatal defect that reaches either branch, so they
-#   are DEFENSIVE, not red-tested. Recorded rather than asserted, because an
-#   untested branch that reads like a proven one is the failure this gate has
-#   been catching in itself since slice 4.
+#   ★ UPDATED BY SLICE 9, which changed what is testable here. When these two
+#   branches were written INSPECT was strict, so both defects they guard were
+#   FATAL rather than wrong-answering — the run died and check 1's completion
+#   guard caught it, leaving both branches defensive. Slice 9 made inspection
+#   TOTAL, and that promoted one of them: a wrong scope now answers
+#   "<unavailable>" instead of halting, so the a1=a2 discriminator above is
+#   RED-TESTED and fires on it.
+#   The branch below is still NOT. Its defect — EVAL given a different glyph
+#   table from the one FREE_OK consulted — is an INTERNAL INCONSISTENCY between
+#   the availability check and the evaluation, so FREE_OK reports the name
+#   resolvable and EVAL then halts on it. Totality cannot cover a disagreement
+#   about what totality was computed against. Recorded as defensive rather than
+#   counted as covered.
 elif [ "$a_glyph" != "str:probe" ]; then
     echo "FAIL  debug 9: ID(\"probe\") inspected to '$a_glyph', expected 'str:probe' — the glyph table is not reaching the inspector"; ok=0
 #   The merge brought str_at and the bitwise ops to all five engines. DEBUG_EVAL
@@ -510,29 +515,70 @@ else
     echo "PASS  debug 9: inspection answers from the STOPPED scope — one expression, two stops, '$a1' then '$a2'; a glyph-naming expression resolves to $a_glyph; and the merged band/str_at builtins agree under the debugger"
 fi
 
-# ── 10. host == VM ─────────────────────────────────────────────────────────
+# ── 10. WATCHPOINTS: stopping on VALUE, which position cannot express ──────
+#   Every stop condition before this one is POSITIONAL — this name, this frame,
+#   this depth. A watchpoint asks about VALUE, and that is not expressible
+#   positionally at all. It is the composition of slice 6 (find the next node
+#   after here) with slice 8 (evaluate in that node's scope), which is why it
+#   could not have been built before either of them.
+w_sec=$(csec "watch: x over SRC_TWO")
+w_n=$(printf '%s\n' "$w_sec" | grep -c '^  watch #')
+w_vals=$(printf '%s\n' "$w_sec" | sed -n 's/.*  |  x = //p' | tr '\n' ' ' | sed 's/ $//')
+#   The SECOND stop is the discriminator: its bt is bare MAIN, i.e. a node
+#   where `x` is not in scope at all and which is not an `x` node.
+w_mid=$(printf '%s\n' "$w_sec" | sed -n '2s/^  watch #[0-9]* [A-Z]* frame\([0-9]*\) bt: \([^|]*\)  |.*/\1 \2/p' | sed 's/ *$//')
+w_none=$(csec "watch: an expression never in scope" | grep -c 'no further change')
+w_end=$(printf '%s\n' "$H" | grep -c '^--- watch: end ---')
+if [ "$w_n" -lt 1 ]; then
+    echo "FAIL  debug 10: the watch section reported $w_n stops — it did not run, so nothing below means anything"; ok=0
+#   ★ THE LOAD-BEARING ASSERTION, and it is not a count. A watch that had
+#   quietly degraded into "stop at every occurrence of x" would still report
+#   plausible values at plausible places. What it could NOT do is stop at #9 —
+#   frame 1, bt bare MAIN — where `x` is not an operand and is not in scope.
+#   That stop exists only because the VALUE changed (it went out of scope), so
+#   it is the one observation no positional predicate can produce.
+elif [ "$w_mid" != "1 MAIN" ]; then
+    echo "FAIL  debug 10: the watch's second stop was at frame/bt '$w_mid', expected '1 MAIN' — it is not stopping where the value CHANGED, only where the name appears, which is a positional breakpoint wearing a watchpoint's name"; ok=0
+elif [ "$w_vals" != "str:from-a <unavailable> str:from-b" ]; then
+    echo "FAIL  debug 10: watched values were '$w_vals', expected 'str:from-a <unavailable> str:from-b' — bound, out of scope, rebound"; ok=0
+elif [ "$w_n" -ne 3 ]; then
+    echo "FAIL  debug 10: the watch fired $w_n times, expected 3 transitions"; ok=0
+#   ★ TOTALITY, and it is a prerequisite rather than a nicety. A watch must
+#   evaluate its expression at EVERY node, and at most nodes the expression is
+#   out of scope; a strict inspector HALTS there. HONEST NOTE: this branch is
+#   DEFENSIVE. Breaking totality for real (FREE_OK forced true) kills the run
+#   outright, so check 1's completion guard catches it and this branch never
+#   runs. It is kept because it names the right failure if a future change
+#   makes non-totality survivable, not because a red run has reached it.
+elif [ "$w_none" -ne 1 ] || [ "$w_end" -ne 1 ]; then
+    echo "FAIL  debug 10: watching a never-in-scope name did not complete cleanly (no-change $w_none, end-marker $w_end of 1 each) — a strict inspector would have halted the run here"; ok=0
+else
+    echo "PASS  debug 10: watchpoints stop on VALUE — $w_n transitions '$w_vals', including one at frame 1 (bt MAIN) where x is not in scope and no positional predicate could stop; and a never-in-scope watch completes instead of halting"
+fi
+
+# ── 11. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 10: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 11: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 10: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 11: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 10: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 11: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 10: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 11: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 10: host and VM disagree"
+                echo "FAIL  debug 11: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

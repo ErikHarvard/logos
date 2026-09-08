@@ -7561,6 +7561,16 @@ bash kernel/gate_with_ok.sh || exit 1   # WITH_OK host_image == metal_image, the
 # for free because DEBUG_EVAL imports eval.la's builtin table rather than
 # copying it — "for free" being the phrase the check exists to verify.
 #
+# Slice 9 adds WATCHPOINTS, the other axis of debugging: every stop condition
+# before it is POSITIONAL (this name, this frame, this depth), while a watch
+# asks about VALUE and is not expressible positionally at all. It required
+# making inspection TOTAL first — a watch evaluates its expression at every
+# node, and at most nodes that expression is out of scope, where a strict
+# inspector halts. So an unresolvable expression now answers "<unavailable>".
+# The gate's assertion is not a count: watching x over SRC_TWO stops at a node
+# that is NOT an x node and where x is not in scope (it went out of scope), and
+# that stop is the one observation no positional predicate can produce.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide

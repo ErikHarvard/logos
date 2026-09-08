@@ -658,16 +658,58 @@ glyph MAIN_DRIVE = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(
 #   looking the glyph back up. That reuses PARSE_PROGRAM, which eval.la
 #   exports, rather than reaching for a bare expression parser it keeps
 #   private — the same reasoning that rebuilt the option from PAIR.
+#   ★ SLICE 9 MAKES INSPECTION TOTAL, and that is a prerequisite rather
+#   than a polish. A watchpoint has to evaluate its expression at EVERY
+#   node to see when the value changes — but at most nodes the expression's
+#   variables are not in scope, and a strict inspector HALTS there. Slice
+#   8's red path already showed the shape of this: dropping the stopped env
+#   did not produce a wrong answer, it killed the run. An inspector you
+#   cannot point at an arbitrary node is not one a watchpoint can use.
+#
+#   So an expression whose free variables are not all resolvable answers
+#   "<unavailable>" instead of halting. FREE_OK walks the expression
+#   tracking its own binders, and asks of each free name only what EVAL
+#   would ask: is it in the local environment, the glyph table, or the
+#   builtins.
+glyph FREE_OK = la env. la gl. Z(la self. la bound. la ast.
+    ast
+        (la name.
+            IF(STK_HAS(name)(bound))(la _. TRUE)(la _.
+            IF(IS_SOME(LIST_FIND(name)(env)))(la _. TRUE)(la _.
+            IF(IS_SOME(LIST_FIND(name)(gl)))(la _. TRUE)(la _.
+            IS_BI_NAME(name)))))
+        (la p. la b. self(CONS(p)(bound))(b))
+        (la f. la a. IF(self(bound)(f))(la _. self(bound)(a))(la _. FALSE))
+        (la v. TRUE))
+
+glyph UNAVAIL = "<unavailable>"
+
 glyph INSPECT = la gl. la env. la src.
     (la parsed.
         (la found.
             IF(IS_SOME(found))(la _.
-                SHOW_VAL(EVAL(R_VAL(found))(env)(gl))
+                (la ast.
+                    IF(FREE_OK(env)(gl)(NIL)(ast))(la _.
+                        SHOW_VAL(EVAL(ast)(env)(gl))
+                    )(la _.
+                        UNAVAIL
+                    )
+                )(R_VAL(found))
             )(la _.
                 error(concat("inspect: expression did not parse: ")(src))
             )
         )(LIST_FIND("__Q")(parsed))
     )(PARSE_PROGRAM(concat("glyph __Q = ")(src)))
+
+#   ── WATCHPOINTS — stop when the VALUE changes, not when a node is reached
+#   ★ THE OTHER AXIS OF DEBUGGING. Every stop condition so far is about
+#   POSITION: this name, this frame, this depth. A watchpoint asks about
+#   VALUE — "stop wherever this becomes something else" — and cannot be
+#   expressed positionally at all. It is the composition of slice 6 (find
+#   the next node after here) and slice 8 (evaluate in that node's scope),
+#   which is why it could not have been built before either.
+glyph BRK_WATCH = la gl. la expr. la old. la d. la ast. la env. la stk.
+    IF(str_eq(INSPECT(gl)(env)(expr))(old))(la _. FALSE)(la _. TRUE)
 
 #   The driver, with a question asked at every stop. Identical to SESSION
 #   except for the inspection, and deliberately NOT a second copy of the
@@ -719,4 +761,37 @@ glyph MAIN_MERGED = SEQ(SEQ(
     print(AGREES(SRC_BAND))))(
     print(AGREES(SRC_STRAT)))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED)
+#   A watch session: report each CHANGE of the expression's value, in order,
+#   resuming after each. `old` starts at UNAVAIL because that is genuinely
+#   the value before anything binds it — the first change is therefore the
+#   binding itself, which is what a watchpoint is expected to catch.
+glyph SESSION_WATCH = la expr. la steps. la gl.
+    Z(la self. la after. la old. la n.
+        IF(int_eq(n)(0))(la _.
+            print("  -- watch budget spent --")
+        )(la _.
+            (la stop.
+                IF(IS_SOME(stop))(la _.
+                    (la r.
+                    (la now.
+                        SEQ(print(concat(concat("  watch ")(STOP_S(r)))(concat(concat("  |  ")(concat(expr)(" = ")))(now))))(
+                        self(STOP_I(r))(now)(sub(n)(1)))
+                    )(INSPECT(gl)(STOP_E(r))(expr))
+                    )(R_VAL(stop))
+                )(la _.
+                    print("  (no further change)")
+                )
+            )(FIND_STOP(BRK_WATCH(gl)(expr)(old))(after)(gl))
+        )
+    )(sub(0)(1))(UNAVAIL)(steps)
+
+glyph RUN_WATCH = la expr. la steps. la src. SESSION_WATCH(expr)(steps)(PARSE_PROGRAM(src))
+
+glyph MAIN_WATCH = SEQ(SEQ(SEQ(SEQ(
+    print("--- watch: x over SRC_TWO, value changes only ---"))(
+    RUN_WATCH("x")(6)(SRC_TWO)))(
+    print("--- watch: an expression never in scope stays unavailable ---")))(
+    RUN_WATCH("nosuchvar")(3)(SRC_TWO)))(
+    print("--- watch: end ---"))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH)
