@@ -71,7 +71,7 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
-EXPECT_AGREE=20
+EXPECT_AGREE=22
 EXPECT_BREAK=11
 
 command -v timeout >/dev/null 2>&1 || { echo "SKIP  debug: timeout(1) absent"; exit 0; }
@@ -618,29 +618,70 @@ else
     echo "PASS  debug 12: the tape agrees with recomputation on all three searches, by VALUE not just verdict ($t_f1), and holds $t_n nodes — the same count check 6 reached by stepping"
 fi
 
-# ── 13. host == VM ─────────────────────────────────────────────────────────
+# ── 13. THE TRACE BUDGET: bounded observation, announced truncation ────────
+#   Until this slice the trace was all-or-nothing, so the debugger could not be
+#   pointed at any program large enough to want one. The budget needs no new
+#   state — the ordinal threaded since slice 6 IS a node counter.
+b4_enter=$(csec "budget: 4 nodes" | grep -c '^ *-> ')
+b4_trunc=$(csec "budget: 4 nodes" | grep -c '^\.\.\. trace truncated after 4 nodes$')
+b4_agree=$(csec "budget: 4 nodes" | grep -c '^AGREE ')
+bl_trunc=$(csec "budget: 1000 nodes" | grep -c '^\.\.\. trace truncated')
+bl_enter=$(csec "budget: 1000 nodes" | grep -c '^ *-> ')
+bl_agree=$(csec "budget: 1000 nodes" | grep -c '^AGREE ')
+if [ "$b4_enter" -eq 0 ] || [ "$bl_enter" -eq 0 ]; then
+    echo "FAIL  debug 13: a budget section emitted no trace at all (4-budget $b4_enter, large-budget $bl_enter) — it did not run"; ok=0
+#   ★ ANNOUNCED, NEVER SILENT. A trace that simply stops is indistinguishable
+#   from a program that finished: the reader cannot tell "this is all that
+#   happened" from "this is all I was willing to show". The marker is the only
+#   thing that separates those two readings.
+elif [ "$b4_trunc" -ne 1 ]; then
+    echo "FAIL  debug 13: the 4-node budget emitted $b4_trunc truncation markers, expected exactly 1 — a trace that stops without saying so reads as a program that finished"; ok=0
+#   ★ THE ABSENCE HALF, and it is the one that keeps the marker honest. A
+#   marker printed unconditionally satisfies the check above and tells the
+#   reader nothing. Red-tested against exactly that.
+elif [ "$bl_trunc" -ne 0 ]; then
+    echo "FAIL  debug 13: a budget of 1000 over a 9-node program still announced truncation ($bl_trunc times) — the marker fires regardless of the bound, so it carries no information"; ok=0
+elif [ "$b4_enter" -ne 4 ]; then
+    echo "FAIL  debug 13: the 4-node budget emitted $b4_enter entered-node lines, expected 4 — the bound is not the number of nodes shown"; ok=0
+elif [ "$bl_enter" -le "$b4_enter" ]; then
+    echo "FAIL  debug 13: the large budget showed $bl_enter nodes and the small one $b4_enter — raising the bound did not show more, so the budget is not what is limiting the trace"; ok=0
+#   ★ SLICE 1'S INVARIANT, RE-TESTED UNDER A NEW CONDITION. A truncated trace
+#   is still an observation; if stopping the trace early changed the result,
+#   the emitter would be doing more than emitting. HONEST NOTE: this branch is
+#   REDUNDANT with check 1, which already folds both budget programs into its
+#   22-program agreement sweep and reports DIVERGED first. Perturbing the
+#   bounded run fires check 1 and the non-vacuity guard above, not this line.
+#   Kept because it names the invariant at the point it applies, not because a
+#   red run has reached it.
+elif [ "$b4_agree" -ne 1 ] || [ "$bl_agree" -ne 1 ]; then
+    echo "FAIL  debug 13: bounded tracing changed the answer (AGREE lines: 4-budget $b4_agree, large $bl_agree of 1 each) — observing must not perturb, bounded or not"; ok=0
+else
+    echo "PASS  debug 13: the trace budget bounds observation without changing it — 4 nodes shown then truncation announced exactly once, $bl_enter shown unbounded with no marker, and both still AGREE"
+fi
+
+# ── 14. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 13: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 14: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 13: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 14: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 13: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 14: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 13: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 14: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 13: host and VM disagree"
+                echo "FAIL  debug 14: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

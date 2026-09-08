@@ -236,6 +236,17 @@ glyph BRK_WHEN = la name. la val. la d. la ast. la env. la stk.
 #   option is therefore rebuilt here from PAIR, in the SHAPE those two
 #   accessors expect (IS_SOME = FST, R_VAL = FST . SND), rather than
 #   reaching for a name the module deliberately does not offer.
+#   A budget larger than any program traced here, and silence.
+#   ★ SILENCE IS -1, NOT 0, AND THE REASON IS A REGRESSION THIS GATE CAUGHT.
+#   With 0, `i = budget` holds at the very first node, so every SILENT search
+#   — and the driver runs one per session step — printed a truncation marker
+#   into the middle of the output it was supposed to stay out of. At -1 both
+#   `i < budget` and `i = budget` are false for every ordinal, so silence is
+#   genuinely silent. Caught by check 10, a watchpoint check, which is the
+#   coupling working in the right direction for once.
+glyph BUDGET_ALL  = 1000000
+glyph BUDGET_NONE = sub(0)(1)
+
 glyph OPT_NONE = PAIR(FALSE)("")
 glyph OPT_SOME = la v. PAIR(TRUE)(PAIR(v)(""))
 
@@ -298,11 +309,25 @@ glyph REC_LAST = la before. la fired. la i. la d. la ast. la env. la stk. la old
 #   One node visit: emit, decide, advance. `tr` silences the trace — a
 #   session runs the evaluation once per command, and printing the whole
 #   trace once per command would bury the stops it is reporting.
-glyph ST_VISIT = la tr. la rec. la brk. la d. la ast. la env. la stk. la st.
+#   ★ SLICE 12 TURNS `tr` FROM A FLAG INTO A BUDGET, and needs no new state
+#   to do it: the ordinal threaded since slice 6 IS a node counter, so
+#   "emit while i < budget" is already expressible. Until now the trace was
+#   all-or-nothing, which means the debugger could not be pointed at any
+#   program large enough to want a debugger.
+#
+#   ★ AND TRUNCATION IS ANNOUNCED, NEVER SILENT. A trace that simply stops
+#   is indistinguishable from a program that finished — the reader cannot
+#   tell "this is all that happened" from "this is all I was willing to
+#   show you". The marker fires exactly once, at i = budget, which is the
+#   one node where the counter crosses the bound.
+glyph ST_VISIT = la bud. la rec. la brk. la d. la ast. la env. la stk. la st.
     (la i.
     (la fired.
-        SEQ(IF(tr)(la _. ENTER(d)(ast))(la _. ""))(
-        SEQ(IF(fired)(la _. IF(tr)(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(la _. ""))(
+        SEQ(IF(lt(i)(bud))(la _. ENTER(d)(ast))(la _.
+            IF(int_eq(i)(bud))(la _.
+                print(concat("... trace truncated after ")(concat(int_to_str(bud))(" nodes")))
+            )(la _. "")))(
+        SEQ(IF(fired)(la _. IF(lt(i)(bud))(la _. BREAK(d)(ast)(env)(stk))(la _. ""))(la _. ""))(
         ST_MK(add(i)(1))(rec(fired)(i)(d)(ast)(env)(stk)(ST_F(st)))))
     )(brk(d)(ast)(env)(stk))
     )(ST_I(st))
@@ -332,10 +357,10 @@ glyph FAULT = la msg. la i. la d. la ast. la env. la stk.
     SEQ(print(concat("!! FAULT env: ")(SHOW_ENV(env))))(
     error(msg))))
 
-glyph DEBUG_EVAL_ST = la tr. la rec. la brk. Z(la self. la st0. la d. la ast. la env. la stk. la gl.
+glyph DEBUG_EVAL_ST = la bud. la rec. la brk. Z(la self. la st0. la d. la ast. la env. la stk. la gl.
     (la st.
         (la rp.
-            SEQ(IF(tr)(la _. LEAVE(d)(ast)(FST(rp)))(la _. ""))(rp)
+            SEQ(IF(lt(ST_I(st0))(bud))(la _. LEAVE(d)(ast)(FST(rp)))(la _. ""))(rp)
         )(
             ast
                 # ── VAR(name) — local env, then glyph table, then builtins ──
@@ -397,13 +422,13 @@ glyph DEBUG_EVAL_ST = la tr. la rec. la brk. Z(la self. la st0. la d. la ast. la
                 # ── STR(val) — a value already ──
                 (la val. PAIR(VAL_STR(val))(st))
         )
-    )(ST_VISIT(tr)(rec)(brk)(d)(ast)(env)(stk)(st0))
+    )(ST_VISIT(bud)(rec)(brk)(d)(ast)(env)(stk)(st0))
 )
 
 #   The slice 1-5 tracer, DEFINED from the threaded one rather than kept as
 #   a second copy: trace on, and the state discarded.
 glyph DEBUG_EVAL_BRK = la brk. la d. la ast. la env. la stk. la gl.
-    FST(DEBUG_EVAL_ST(TRUE)(REC_FIRST(sub(0)(1)))(brk)(ST_MK(0)(OPT_NONE))(d)(ast)(env)(stk)(gl))
+    FST(DEBUG_EVAL_ST(BUDGET_ALL)(REC_FIRST(sub(0)(1)))(brk)(ST_MK(0)(OPT_NONE))(d)(ast)(env)(stk)(gl))
 
 # ── slice 1's tracer IS the parameterised one with no breakpoint ─────
 #   Defined by application, not by a second definition, so "tracing with
@@ -605,7 +630,7 @@ glyph MAIN_STEP = SEQ(SEQ(SEQ(SEQ(SEQ(
 glyph FIND_STOP = la brk. la after. la gl.
     (la g.
         IF(IS_SOME(g))(la _.
-            ST_F(SND(DEBUG_EVAL_ST(FALSE)(REC_FIRST(after))(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
+            ST_F(SND(DEBUG_EVAL_ST(BUDGET_NONE)(REC_FIRST(after))(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
         )(la _.
             error("debug_eval: no glyph: MAIN")
         )
@@ -829,7 +854,7 @@ glyph MAIN_WATCH = SEQ(SEQ(SEQ(SEQ(
 glyph FIND_STOP_BACK = la brk. la before. la gl.
     (la g.
         IF(IS_SOME(g))(la _.
-            ST_F(SND(DEBUG_EVAL_ST(FALSE)(REC_LAST(before))(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
+            ST_F(SND(DEBUG_EVAL_ST(BUDGET_NONE)(REC_LAST(before))(brk)(ST_MK(0)(OPT_NONE))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl)))
         )(la _.
             error("debug_eval: no glyph: MAIN")
         )
@@ -888,7 +913,7 @@ glyph REV = Z(la self. la l. la acc.
 glyph TAPE = la gl.
     (la g.
         IF(IS_SOME(g))(la _.
-            REV(ST_F(SND(DEBUG_EVAL_ST(FALSE)(REC_ALL)(BRK_NONE)(ST_MK(0)(NIL))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl))))(NIL)
+            REV(ST_F(SND(DEBUG_EVAL_ST(BUDGET_NONE)(REC_ALL)(BRK_NONE)(ST_MK(0)(NIL))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl))))(NIL)
         )(la _.
             error("debug_eval: no glyph: MAIN")
         )
@@ -952,4 +977,39 @@ glyph MAIN_TAPE = SEQ(SEQ(SEQ(SEQ(SEQ(
     print(concat("  nodes on tape ")(int_to_str(STK_LEN(TP))))))(
     print("--- tape: end ---"))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE)
+#   Tracing under a budget, and the agreement check run through it. The
+#   ★ invariant slice 1 established — observing must not change the answer —
+#   has to survive being BOUNDED as well: a truncated trace is still an
+#   observation, and if stopping the trace early changed the result then the
+#   emitter would be doing more than emitting.
+glyph DEBUG_RUN_BUD = la bud. la name. la gl.
+    (la found.
+        IF(IS_SOME(found))(la _.
+            FST(DEBUG_EVAL_ST(bud)(REC_FIRST(sub(0)(1)))(BRK_NONE)(ST_MK(0)(OPT_NONE))(0)(R_VAL(found))(NIL)(CONS(name)(NIL))(gl))
+        )(la _.
+            error(concat("debug_eval: no glyph: ")(name))
+        )
+    )(LIST_FIND(name)(gl))
+
+glyph AGREES_BUD = la bud. la src.
+    (la gl.
+        (la traced.
+            (la plain.
+                IF(str_eq(SHOW_VAL(traced))(SHOW_VAL(plain)))(la _.
+                    concat("AGREE ")(SHOW_VAL(plain))
+                )(la _.
+                    concat(concat("DIVERGED traced=")(SHOW_VAL(traced)))(concat(" plain=")(SHOW_VAL(plain)))
+                )
+            )(RUN(gl))
+        )(DEBUG_RUN_BUD(bud)("MAIN")(gl))
+    )(PARSE_PROGRAM(src))
+
+glyph MAIN_BUDGET = SEQ(SEQ(SEQ(SEQ(SEQ(
+    print("--- budget: 4 nodes, truncation must be ANNOUNCED ---"))(
+    print(AGREES_BUD(4)(SRC_STEP))))(
+    print("--- budget: 1000 nodes, no truncation expected ---")))(
+    print(AGREES_BUD(1000)(SRC_STEP))))(
+    print("--- budget: end ---")))(
+    print(""))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE))(MAIN_BUDGET)

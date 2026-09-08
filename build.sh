@@ -7594,6 +7594,19 @@ bash kernel/gate_with_ok.sh || exit 1   # WITH_OK host_image == metal_image, the
 # asserted by VALUE beside it; and the tape's node count is cross-checked
 # against the count check 6 reaches independently by stepping.
 #
+# Slice 12 adds the TRACE BUDGET. Until it, the trace was all-or-nothing, so the
+# debugger could not be pointed at any program large enough to want one. It
+# needs no new state: the ordinal threaded since slice 6 IS a node counter.
+# ★ Truncation is ANNOUNCED, never silent — a trace that simply stops is
+# indistinguishable from a program that finished, and the marker is the only
+# thing separating "this is all that happened" from "this is all I was willing
+# to show". Both halves are asserted: the marker fires when the bound is hit,
+# and does NOT fire when it is not. A regression during this slice is worth
+# knowing: with silence encoded as budget 0, every SILENT search printed a
+# truncation marker into output it was supposed to stay out of, because i=0 on
+# the first node. Silence is -1, where both comparisons are false for every
+# ordinal.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide
