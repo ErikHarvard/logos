@@ -228,11 +228,19 @@ need_cond "!! BREAK VAR bt: x <- A <- MAIN"
 need_cond "!! BREAK VAR env: x=str:from-a"
 need_cond "!! BREAK VAR bt: x <- B <- MAIN"
 need_cond "!! BREAK VAR env: x=str:from-b"
-#   ★ EVALUATED UNCONDITIONALLY, not as an `elif`. Every STK_HAS defect I
-#   could construct that lets an ABSENT frame match also makes the PRESENT
-#   frame over-fire, so inside the chain this branch was always reported
-#   first by the relational check and never ran. Reachable in principle,
-#   shadowed in practice — the inert-control failure in another shape.
+#   ★ EVALUATED UNCONDITIONALLY, not as an `elif`, and the red path shows
+#   that placement is load-bearing rather than merely defensive. Injection A
+#   — STK_HAS negated, so an ABSENT frame matches and a PRESENT one does not
+#   — drives c_via to 0 rather than over-firing. `c_via >= c_ctl` is
+#   therefore FALSE, so inside the chain this would have fallen through to
+#   the exact-count branch and reported an off-by-count, never saying that a
+#   frame which is not on the stack had matched. Unconditional, it reports
+#   the real defect: NOSUCH fired 4 times.
+#   (This corrects an earlier claim here that every such defect also makes
+#   the present frame over-fire, leaving the branch "reachable in principle,
+#   shadowed in practice". Injection A is the counterexample that claim said
+#   could not be constructed — it was an argument, not a red run, and the
+#   red run disagreed with it.)
 if [ "$c_nos_l" -lt 3 ]; then
     echo "FAIL  debug 5: the must-not-fire section has only $c_nos_l lines — it did not run, so '0 breakpoints' proves nothing"; ok=0; cond5_ok=0
 elif [ "$c_nos" -ne 0 ]; then
