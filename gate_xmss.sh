@@ -64,6 +64,49 @@ set -uo pipefail
 cd "$(dirname "$0")"
 ok=1
 
+# ── THE ORACLE IS RE-RUN, NOT REMEMBERED ────────────────────────────────────
+# ★ xmss.la:178-179 embed EXP_ROOT/EXP_LEAF0 as CONSTANTS hand-transcribed from
+# xmss_model.py, and the LA checks its computed root/leaf0 against them. So THE
+# CONSTANT IS THE ORACLE -- and until now nothing re-ran the model that produced
+# it. That is a captured expectation wearing a derived one's clothes: if the
+# transcription were wrong, the LA would be checked against a wrong authority,
+# and the natural repair ("make the LA agree") bends the implementation to the
+# error. The provenance note above is careful about E_XMSS; this closes the same
+# gap one level down, for the vectors E_XMSS is derived FROM.
+#
+# Both sides are EXTRACTED FROM THEIR SOURCES -- the model by running it, the
+# constants by reading xmss.la. Neither is retyped here: a third copy in this
+# gate would only move the transcription problem, not close it.
+#
+# ★ AND IT HARD-FAILS WHEN python3 IS ABSENT rather than skipping. A SKIP would
+# satisfy this check while asserting nothing, which is the defect class the
+# 2026-09-08 census documents (LA_COMPLETION.md, Tier 1) and which
+# build.sh:405-411 already states for gate FILES: absence is a broken checkout,
+# not a configuration. The model is a checkout artifact; so is this gate.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "FAIL  xmss oracle: python3 absent — the model cannot be re-run, so the"
+    echo "      hand-transcribed EXP_ROOT/EXP_LEAF0 in xmss.la are unverified."
+    echo "      This FAILS rather than SKIPs: a skip would satisfy the check"
+    echo "      while asserting nothing."
+    exit 1
+fi
+[ -f xmss_model.py ] || { echo "FAIL  xmss oracle: xmss_model.py absent — a missing model is a broken checkout, not a reason to skip"; exit 1; }
+
+MODELOUT="$(python3 xmss_model.py 2>&1)" || { echo "FAIL  xmss oracle: xmss_model.py did not run cleanly"; printf '%s\n' "$MODELOUT"; exit 1; }
+M_ROOT="$(printf '%s\n' "$MODELOUT"  | sed -n 's/^  root  *= *\([0-9a-f]*\)$/\1/p')"
+M_LEAF="$(printf '%s\n' "$MODELOUT"  | sed -n 's/^  leaf0  *= *\([0-9a-f]*\)$/\1/p')"
+L_ROOT="$(sed -n 's/^glyph EXP_ROOT  *= *"\([0-9a-f]*\)".*/\1/p'  xmss.la)"
+L_LEAF="$(sed -n 's/^glyph EXP_LEAF0  *= *"\([0-9a-f]*\)".*/\1/p' xmss.la)"
+
+# a blank on either side means the extraction broke, not that they agree --
+# "" = "" would otherwise pass and report a verified oracle from two failures.
+for v in "$M_ROOT" "$M_LEAF" "$L_ROOT" "$L_LEAF"; do
+    [ -n "$v" ] || { echo "FAIL  xmss oracle: could not extract a value (model root=[$M_ROOT] leaf0=[$M_LEAF]; xmss.la root=[$L_ROOT] leaf0=[$L_LEAF]) — an empty comparison is not agreement"; exit 1; }
+done
+[ "$M_ROOT" = "$L_ROOT" ] || { echo "FAIL  xmss oracle: model root [$M_ROOT] != xmss.la EXP_ROOT [$L_ROOT] — the transcribed constant does not match the independent implementation that produced it"; ok=0; }
+[ "$M_LEAF" = "$L_LEAF" ] || { echo "FAIL  xmss oracle: model leaf0 [$M_LEAF] != xmss.la EXP_LEAF0 [$L_LEAF]"; ok=0; }
+[ "$ok" -eq 1 ] && echo "PASS  xmss oracle: xmss_model.py RE-RUN and its root=$M_ROOT leaf0=$M_LEAF match the constants in xmss.la — the expectation is derived from the independent model on every run, not remembered from a hand copy"
+
 E_XMSS="xmss n=2 w=4 h=2: root OK | leaf0 OK | leaf0 verifies OK | leaf2 verifies vs SAME root OK | sigs differ OK | wrong leaf idx rejected OK | corrupt auth path rejected OK | wrong msg rejected OK | wrong root rejected OK"
 
 # ★ XMSS_VM_ONLY=1 runs the VM leg alone (~37 min instead of 2 h 41 m) and GIVES
