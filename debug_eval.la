@@ -278,6 +278,31 @@ glyph ST_VISIT = la tr. la after. la brk. la d. la ast. la env. la stk. la st.
     )(brk(d)(ast)(env)(stk))
     )(ST_I(st))
 
+# ── THE FAULT REPORT — the post-mortem, slice 7 ──────────────────────
+#   ★ THE DEBUGGER WAS USELESS AT EXACTLY THE MOMENT YOU WOULD REACH FOR
+#   ONE. Every dispatch branch that cannot proceed called `error` and the
+#   process died with one line: the message. Not WHERE, not HOW CONTROL
+#   GOT THERE, not what was bound. Slice 6 threaded an ordinal, so all the
+#   material for a real post-mortem was already in hand and simply thrown
+#   away at the fault.
+#
+#   ★ IT REPORTS AND THEN STILL DIES, and the order is the whole design.
+#   SEQ forces the prints before `error` is reached, so the report reaches
+#   stdout even though the process is about to halt non-zero. A debugger
+#   that CAUGHT the fault and continued would be worse than none: it would
+#   convert a loud failure into a silent one, which is the discipline this
+#   whole project is built on. The gate asserts the non-zero exit for
+#   precisely that reason.
+#
+#   The location line is rendered by STOP_REC — the SAME renderer the
+#   driver uses for a stop — so a fault reads in the same coordinates as a
+#   breakpoint, and there is no second formatter to drift from it.
+glyph FAULT = la msg. la i. la d. la ast. la env. la stk.
+    SEQ(print(concat("!! FAULT ")(msg)))(
+    SEQ(print(concat("!! FAULT at ")(STOP_S(STOP_REC(i)(d)(ast)(stk)))))(
+    SEQ(print(concat("!! FAULT env: ")(SHOW_ENV(env))))(
+    error(msg))))
+
 glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. la env. la stk. la gl.
     (la st.
         (la rp.
@@ -297,7 +322,7 @@ glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. 
                             IF(IS_BI_NAME(name))(la _.
                                 PAIR(VAL_BI(name))(st)
                             )(la _.
-                                error(concat("debug_eval: unbound variable: ")(name))
+                                FAULT(concat("debug_eval: unbound variable: ")(name))(ST_I(st0))(d)(ast)(env)(stk)
                             ))
                         )(LIST_FIND(name)(gl)))
                     )(LIST_FIND(name)(env))
@@ -317,7 +342,7 @@ glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. 
                         (la fval. la stf.
                             fval
                                 (la s.
-                                    error(concat("debug_eval: cannot apply string: ")(s))
+                                    FAULT(concat("debug_eval: cannot apply string: ")(s))(ST_I(st0))(d)(ast)(env)(stk)
                                 )
                                 (la p. la b. la e.
                                     (la ra.
@@ -335,7 +360,7 @@ glyph DEBUG_EVAL_ST = la tr. la after. la brk. Z(la self. la st0. la d. la ast. 
                                     )(self(stf)(add(d)(1))(arg)(env)(stk)(gl))
                                 )
                                 (la n.
-                                    error(concat("debug_eval: cannot apply integer: ")(int_to_str(n)))
+                                    FAULT(concat("debug_eval: cannot apply integer: ")(int_to_str(n)))(ST_I(st0))(d)(ast)(env)(stk)
                                 )
                         )(FST(rf))(SND(rf))
                     )(self(st)(add(d)(1))(func)(env)(stk)(gl))

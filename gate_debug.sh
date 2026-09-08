@@ -49,6 +49,25 @@
 # strictly NESTED stop sets. They measure the STACK, not the depth: `d` counts
 # every subexpression while only a call pushes a frame, and on SRC_STEP the
 # two numbers differ (7 against 8), so a step-over written on `d` is caught.
+#
+# SLICE 6 is the DRIVER and the first slice to change the evaluator's SHAPE:
+# an ordinal counts nodes already visited, so it flows ACROSS siblings where d
+# and stk flow downward, and no predicate can express it. The dispatch threads
+# state and returns PAIR(value)(state), the old tracer being DEFINED from it by
+# taking FST. Note the cost, which check 7 exists to cover: agreement compares
+# the VALUE, so it cannot see a mis-threaded ordinal — measured, not assumed,
+# by a red run in which check 1 stayed green with DEBUG_EVAL replaced by EVAL
+# outright. The ordinal's oracle is the printed trace: the k-th ENTER line IS
+# node k.
+#
+# SLICE 7 is the POST-MORTEM. Every branch that could not proceed called
+# `error` and died with one line — not where, not how control got there, not
+# what was bound — so the debugger was useless at exactly the moment you would
+# reach for one. It now reports and THEN dies: check 8's load-bearing assertion
+# is the NON-ZERO EXIT, because a post-mortem that caught the fault would turn
+# a loud failure into a silent one. And "exits non-zero" is true of a harness
+# that merely failed to parse, so the run must first be shown to have got far
+# enough to fault — that guard is red-tested, not assumed.
 set -u
 cd "$(dirname "$0")" || exit 1
 ok=1
@@ -399,29 +418,77 @@ else
     echo "PASS  debug 7: the driver resumes and the command decides — from the same stop #5, into descends to #6 (frame 3, inside G) and over skips it to #7 (frame 2); ordinals strictly increase, match the traced visit order, and the exhausted run reports no further stop"
 fi
 
-# ── 8. host == VM ──────────────────────────────────────────────────────────
+# ── 8. THE FAULT REPORT: a post-mortem, and STILL a loud failure ───────────
+#   ★ THE HARNESS IS BUILT FROM debug_eval.la ITSELF — everything before its
+#   MAIN, plus a MAIN that runs a program which cannot complete. That is the
+#   idiom build.sh already uses for its RUN_SM harness, and it is chosen over
+#   a second .la file for one reason: there is no copy of the machinery, so
+#   the harness cannot drift from the thing it is testing. A faulting program
+#   cannot live in debug_eval.la's own MAIN, because halting there would take
+#   the other seven checks down with it.
+F_LA=./debug_fault_gen.la
+FMAIN=$(grep -n '^glyph MAIN = ' debug_eval.la | tail -1 | cut -d: -f1)
+head -$((FMAIN-1)) debug_eval.la > "$F_LA"
+printf 'glyph MAIN = DEBUG_RUN(PARSE_PROGRAM("glyph H = la w. nosuchname\\nglyph G = la z. H(z)\\nglyph F = la y. G(y)\\nglyph MAIN = F(\\"in\\")"))\n' >> "$F_LA"
+FOUT=$(timeout 300 ./tiny_host "$F_LA" 2>&1); FRC=$?
+rm -f "$F_LA"
+f_trace=$(printf '%s\n' "$FOUT" | grep -c '^ *-> ')
+#   ★ NON-VACUITY IS NOT OPTIONAL HERE, IT IS THE WHOLE TRAP. "Exits
+#   non-zero" is ALSO true of a harness that failed to parse, or that never
+#   ran at all. So the run must be shown to have got somewhere first —
+#   otherwise the loud-failure assertion below passes for the wrong reason
+#   and reports a working post-mortem where there is none.
+if [ "$f_trace" -lt 5 ]; then
+    echo "FAIL  debug 8: the fault harness produced only $f_trace trace lines — it did not get far enough to fault, so a non-zero exit proves nothing"; ok=0
+#   ★ THE LOUD FAILURE IS THE LOAD-BEARING ASSERTION. A debugger that
+#   REPORTED the fault and then exited 0 would be strictly worse than no
+#   debugger: it converts a loud failure into a silent one, which is the one
+#   discipline this whole project is built on. Reporting must not catch.
+elif [ "$FRC" -eq 0 ]; then
+    echo "FAIL  debug 8: the fault harness exited 0 — the post-mortem SWALLOWED the error instead of reporting and dying, turning a loud failure into a silent one"; ok=0
+elif ! printf '%s\n' "$FOUT" | grep -qF '!! FAULT debug_eval: unbound variable: nosuchname'; then
+    echo "FAIL  debug 8: the fault produced no report line — it died with only the message, which is the state slice 7 exists to end"; ok=0
+#   The location line is asserted VERBATIM because it pins four separate
+#   things at once: slice 6's ordinal, the node kind, the FRAME depth, and
+#   slice 3's dynamic chain. It is rendered by STOP_REC, the same renderer
+#   the driver uses for a stop, so a fault reads in a breakpoint's
+#   coordinates and there is no second formatter to drift from it.
+elif ! printf '%s\n' "$FOUT" | grep -qF '!! FAULT at #12 VAR frame4 bt: w <- z <- y <- MAIN'; then
+    echo "FAIL  debug 8: the fault location line is wrong or missing — expected '#12 VAR frame4 bt: w <- z <- y <- MAIN', got: $(printf '%s\n' "$FOUT" | grep '!! FAULT at' | head -1)"; ok=0
+#   ★ AND THE TWO PROJECTIONS MUST STILL DISAGREE AT THE FAULT. `w` is the
+#   only binding in scope, while control arrived through four frames. A
+#   report that printed the environment wearing a backtrace label would show
+#   the same thing twice — the slice 3 discriminator, applied where it
+#   matters most.
+elif ! printf '%s\n' "$FOUT" | grep -qF '!! FAULT env: w=str:in'; then
+    echo "FAIL  debug 8: the fault report did not show the environment in force ('w=str:in') — a post-mortem without the bindings is half a report"; ok=0
+else
+    echo "PASS  debug 8: a fault reports before it dies — #12 VAR frame4, dynamic chain w <- z <- y <- MAIN, env w=str:in — and still exits $FRC, so the post-mortem reports without catching"
+fi
+
+# ── 9. host == VM ──────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 8: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 9: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 8: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 9: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 8: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 9: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 8: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 9: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 8: host and VM disagree"
+                echo "FAIL  debug 9: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

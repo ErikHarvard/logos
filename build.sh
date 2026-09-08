@@ -4877,6 +4877,15 @@ bash kernel/gate_k5b2.sh || exit 1
 # outright, and only the content checks catch that. The ordinal therefore gets
 # its own oracle, the printed trace, whose k-th ENTER line is node k.
 #
+# Slice 7 is the post-mortem: a fault now reports its ordinal, node kind, frame
+# depth, dynamic backtrace and the environment in force, and THEN still dies.
+# The load-bearing assertion is the non-zero exit — a post-mortem that caught
+# the fault would convert a loud failure into a silent one, which is the one
+# discipline this project is built on. The fault harness is generated from
+# debug_eval.la itself (everything before its MAIN, plus a new MAIN), the same
+# idiom used for the RUN_SM harness above, so there is no second copy of the
+# machinery to drift from what it tests.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide
