@@ -194,3 +194,10 @@ commit_today.sh
 /kernel/kernel_comp_term_64.elf
 /kernel/kernel_comp_text.elf
 /kernel/kernel_comp_text_64.elf
+# Left by an interrupted build: build.sh:3774 `cp logos_secd vm_seed` creates it
+# and :3806 removes it, so it is only ever on disk mid-run. Untracked and
+# unignored, it showed up as new work in every `git status` after an abort.
+vm_seed
+# Track A's local asm-gate scratch (per-test .out captures). Referenced by
+# nothing in the tree; it is working state, not source.
+.asmgate_local/
