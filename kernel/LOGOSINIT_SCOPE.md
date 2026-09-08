@@ -368,6 +368,53 @@ pid, record vector + error code + CR2 in its PCB, mark it **dead-by-fault**, tea
 its mapping down, and **return to the scheduler**. The machine survives; the
 process does not. Everything else in the ruling depends on this brick.
 
+#### ★ MEASURED starting state (2026-09-08) — worse than §5.0's R1 assumed
+
+Before designing the gate I measured what a fault in a P1 process actually does
+today, rather than inheriting §5.0's assumption. Two runs, one variable:
+
+| what executes `ud2` | serial output | rc |
+|---|---|---|
+| a **ring-3 P1 process** | **nothing at all** | **124 (timeout — the machine wedged)** |
+| the same `ud2` on the **kernel's own CR3** | `EXCEPTION 06 err=0000000000000000 rip=ffffffff8010035c` | 35 |
+
+The only variable is the address space. So **K2's loud-failure guarantee does not
+extend into a process address space** — it stops being loud at exactly the point
+P2 needs it, and produces *no diagnostic and no exit code*.
+
+**Mechanism** (read from `kernel/idt.asm` + the P1 symbol map; the two rows above
+are measured, the causal chain below is inferred and not separately instrumented).
+A P1 process's PML4 maps only `pd_i[128]` — VA `0x10000000..0x101fffff` — plus the
+kernel high half at `[511]`. Every address the fault path needs is **below 2 MiB,
+in PD[0], which is not present** under a process CR3:
+
+| dependency | address | why it is low |
+|---|---|---|
+| `idt` (the table itself) | `0x116150` | `idt_ptr`'s base is the **low** BSS address; the IDTR still points there after the CR3 switch |
+| `isr0` / `isr6` / `isr14` | `0x10054b` / `0x100581` / `0x1005aa` | `isr_table` holds **low absolute** handler addresses, so every gate offset is low |
+| `exc_msg` | `0x100782` | `isr_common` does `mov rsi, exc_msg` — a **low absolute** string reference |
+
+(`serial_puts` / `print_hex64` are reached by `call`, which is rel32 and therefore
+position-independent — those are fine.) The CPU faults reading the IDT descriptor,
+that fault cannot be delivered either, → double fault → triple fault → CPU stops.
+`-no-reboot` leaves QEMU alive, so a gate sees a **timeout, not an exit code**.
+
+#### P2.0 — the prerequisite brick: make the fault path REACHABLE
+
+P2's handler cannot run at all until the fault path exists in every address space.
+This is a separate, separately-gateable step *before* any attribution logic:
+
+1. IDTR base → the **high** alias of `idt`;
+2. `isr_table` entries → **high** handler addresses, so the gate offsets are high;
+3. `isr_common` → position-independent (`lea rsi, [rel exc_msg]`).
+
+**P2.0's micro-gate is exact and cheap:** the same `ud2`-in-a-process probe that
+today produces *nothing and rc 124* must instead produce K2's **existing**
+`EXCEPTION 06` line and **exit 35**. P2.0 alone restores LOUDNESS without adding
+attribution or containment — it converts the measured wedge into the diagnosed
+halt that §5.0's R1 wrongly assumed already existed. Only then does P2 proper
+(attribution + containment + return-to-scheduler) have anything to stand on.
+
 ### P3 — LA-driven process creation (`pspawn`)
 Today entry into a process is an `iretq` hardcoded in `boot.asm`. Init must
 create children itself: a syscall that allocates a pid, builds a per-process
@@ -577,7 +624,7 @@ vector. `alpha` holds a canary in **its own** address space.
 
 | # | Control | What passes without it |
 |---|---|---|
-| **R1** | **Today's kernel IS the red.** The same faulting image on HEAD's K2 halts the machine and never reaches exit 33. | Nothing — this is the pre-existing behaviour, so the red is free and already witnessed by every K2 fault gate. It is the exact shape of D-INIT.1's no-reap loop halting at 7. |
+| **R1** | ~~**Today's kernel IS the red.** The same faulting image on HEAD's K2 halts the machine and never reaches exit 33.~~ **CORRECTED 2026-09-08 — measured, and this was wrong.** A ring-3 fault today produces **no output and no exit code**: the machine wedges (rc 124 under `timeout`), because the IDT, the ISR stubs and their strings are all unmapped under a process CR3 (see P2's *measured starting state*). It never reaches 33, but it never reaches **35** either. | The red is **not free**, and it is **weak**: a timeout is also what a hang, a lost serial, or a too-short timeout produce. A gate accepting "not green" would pass for the wrong reason. R1 must therefore NAME the failure shape it saw — `wedged (rc 124, no output)` vs `diagnosed-but-halted (rc 35)` vs `unexpected` — and require the specific one. |
 | **R2** | **Attribution.** Make `gamma` fault instead of `beta`; the reported pid must change. | A handler that hardcodes a pid, or misreads "current", passes assertion 1 and fails only here. |
 | **R3** | **Containment vs MASKING.** `beta`'s post-fault instruction would print `beta-continued`; assert it **never appears**. | A handler that "contains" by mapping the faulting page and resuming looks identical on assertions 1–4. This is the `b_τ ≡ f_τ` check on the word *isolated*: the process must **die**, not be papered over. |
 | **R4** | **Isolation has power.** Re-run with `alpha` and `beta` mapped into ONE address space; `beta`'s wild write must reach `alpha`'s canary and corrupt it. | Assertion 4 is vacuous if nothing could ever have corrupted the canary — this proves the test can fail. |
@@ -661,6 +708,75 @@ K6C, K6C2, K6C3, HH1, HH1B, HH2, HH2B, HH2C, K5B2, K5B2+K5B2_DBG, RING3, IPC).
 `build_p1.sh` while another kernel build is in flight silently contaminates that
 build's ELF — it is not a conflict git can see, because these artifacts are
 gitignored. Run kernel builds **sequentially**.
+
+---
+
+### 5.0.3 P2's OWN gate — one faulting process, no init (design, 2026-09-08)
+
+§5.0 is the **acceptance test for the whole ruling** and cannot run until P1-P4
+exist. §5.0 itself says P2 wants its own smaller gate first — *"a single faulting
+process that the kernel survives with no init involved"*. This is that design. It
+runs directly on P1's three-process table, which is built and green.
+
+**★ SCOPE DECISION, and it is load-bearing: restart moves OUT of P2's gate.**
+§5.0's assertion 5 (*`beta` is restarted under a NEW pid*) and its R5 (*restart
+storm / backoff*) both belong to **P6**, not here. Restart after a fault means
+tearing down the PML4 and rebuilding from a pristine image, which is **P3
+(`pspawn`)**. A P2 gate asserting restart could not go green until P3 existed —
+which would make the keystone **ungateable on its own** and stall the exact brick
+everything depends on. P2's gate therefore stops at *attribution + containment +
+survival*, and P6's gate picks up restart and backoff.
+
+**Scenario.** P1's table, unchanged, except process 2's payload faults instead of
+exiting. Two fault shapes, selected by a build flag, so the gate is not tuned to
+one vector: `#UD` (`ud2`, vector 06, no error code) and `#PF` (a write to an
+unmapped VA, vector 0e, error code non-zero, CR2 = the address).
+
+**Green — seven assertions on the serial transcript plus `isa-debug-exit`:**
+
+1. `P1 pid=1 val=A1` — process 1 completes normally. The table still works; the
+   fault did not break the ordinary path.
+2. `FAULT pid=2 vec=06 err=0 cr2=0000000000000000` — **the fault is attributed to
+   its process.** Attribution is the entire new information over K2's bare
+   `EXCEPTION 06`, which names a vector and no owner.
+3. `P1 pid=3 val=C3` — **the sibling AFTER the faulting one still runs**, and runs
+   *after* it in the transcript. This is containment: the scheduler was re-entered
+   from the fault handler. Codex :25856, *"other organs are unaffected"*.
+4. `P1 table drained: every process exited, kernel alive` — the kernel outlived
+   the fault, the same line P1 already asserts.
+5. `P1 pcb pid=2 state=4 fault=06` — the PCB carries **dead-by-fault** and the
+   vector, dumped after the run. The table is where the death is *recorded*, not
+   just where it is announced; P4 (`pwait`) reads exactly this.
+6. Exit **33** — not 35 (K2's fault halt) and not a timeout. The machine survived
+   and finished cleanly.
+7. `P2 pid=2 resumed` **never appears** — see R3.
+
+**Red controls — each catches a different lie:**
+
+| # | Control | What passes without it |
+|---|---|---|
+| **R1'** | **The baseline, RESTATED on measurement.** Build with `-dP1` only (no P2): assert `FAULT pid=` is absent AND exit 33 is absent, **and name the shape** — `wedged (rc 124, no output)` is the measured truth today; `diagnosed-but-halted (rc 35)` means P2.0 landed but P2 did not; anything else is `unexpected` and fails. | §5.0's original R1 assumed a clean "halts without 33". Measured, it wedges with no output at all, so a gate accepting *any* non-green would pass for the wrong reason — and would keep passing if the serial broke. |
+| **R2** | **Attribution.** Fault process **3** instead of process 2; the reported pid must change 2 → 3. | A handler that hardcodes a pid, or misreads "current", satisfies assertion 2 and fails only here. |
+| **R3** ★ | **Containment vs MASKING.** The faulting process's next instruction would print `P2 pid=2 resumed`; assert it **never appears**. | A handler that "contains" by mapping the faulting page and *resuming* looks identical on assertions 1-6. This is the `b_τ ≡ f_τ` check on the word **isolated**: the process must **die**, not be papered over. |
+| **R4** ★ | **Isolation has power.** Make process 2's fault a wild **write into another process's frame**. Isolated: it faults and process 3 still reads `C3`. Re-run with `build_p1.sh --shared` (all three PCBs on ONE PML4 — already built and witnessed for P1): the same write must **reach** and corrupt what process 3 reads. | Assertion 3 is vacuous if nothing could ever have crossed. This proves the isolation claim *could* have failed — and it reuses P1's existing, already-red-witnessed `--shared` machinery rather than inventing a second mechanism. |
+| **R5** | **Vector fidelity.** Build the `#PF` variant: the reported vector must change 06 → 0e, the error code must be **non-zero**, and **CR2 must equal the address written**. | A handler that reports a constant vector, or forgets CR2, passes the `#UD` gate perfectly. §5.0 names two fault shapes for exactly this reason; this makes it a control rather than a note. |
+
+**R3 and R4 remain the two that matter**, unchanged from §5.0's reasoning: R3
+separates containment from masking, R4 stops the isolation assertion from being
+vacuous. What is new is **R1'**, which was a free red in §5.0 and is not one.
+
+**Ordering, so the gate can go green incrementally:** P2.0's micro-gate
+(`EXCEPTION 06` + exit 35 from inside a process) must pass before any of the above
+can even be attempted — a gate that cannot deliver an interrupt cannot observe an
+attribution. P2.0 first, green; then P2, green; then the reds above.
+
+**Lesson carried forward from P1, applied to `gate_p2.sh` before it is written:**
+no `set -e` in the gate (it kills the verdict block on the failing path, so the
+gate cannot print its own FAIL), no EXIT trap whose first command can fail, and
+never `RESULT=$(fn)` when `fn` assigns a status the caller needs — command
+substitution runs it in a subshell and the status dies there. All three are
+exit-status handling, none is findable by reading the gate; P1's gate had the
+third and could never have gone green.
 
 ---
 
