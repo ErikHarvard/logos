@@ -586,29 +586,61 @@ else
     echo "PASS  debug 11: reverse stepping recomputes history — forward #$b_f1 then #$b_f2, back returns to #$b_bk, and a step back from beyond the end reaches #$b_lt (the LAST qualifying node, which the round trip alone could not distinguish from the first)"
 fi
 
-# ── 12. host == VM ─────────────────────────────────────────────────────────
+# ── 12. THE TAPE: an optimisation checked against its definition ───────────
+#   Slice 10 made history RECOMPUTED rather than stored, which is what made
+#   reverse stepping nearly free — and quadratic: every search re-runs the whole
+#   program. The tape walks once and answers afterwards from the record.
+#
+#   ★ RECOMPUTATION STAYS THE DEFINITION; THE TAPE IS THE OPTIMISATION, and the
+#   check compares the two rather than testing the tape alone. An optimisation
+#   verified only against itself is not verified. If they ever disagree, the
+#   recompute path is the one that is right.
+t_f1=$(csec "tape: recompute" | sed -n 's/^  fwd1 \([A-Z]*\)  \(.*\)$/\1 \2/p')
+t_f2=$(csec "tape: recompute" | sed -n 's/^  fwd2 \([A-Z]*\)  \(.*\)$/\1 \2/p')
+t_bk=$(csec "tape: recompute" | sed -n 's/^  back \([A-Z]*\)  \(.*\)$/\1 \2/p')
+t_n=$(csec "tape: recompute" | sed -n 's/^  nodes on tape \([0-9]*\)$/\1/p')
+#   ★ "SAME" HAS A VACUITY HOLE AND IS NOT ASSERTED ALONE. SAME_STOP reports
+#   SAME when BOTH sides are empty, so two searches that each found nothing
+#   agree perfectly. The tape's own stop is therefore asserted by VALUE beside
+#   the verdict — and the node count is cross-checked against check 6, which
+#   independently establishes that SRC_STEP has 9 nodes by stepping through it.
+if [ -z "$t_f1" ] || [ -z "$t_bk" ] || [ -z "$t_n" ]; then
+    echo "FAIL  debug 12: the tape section reported '$t_f1' / '$t_bk' / nodes '$t_n' — it did not run"; ok=0
+elif [ "$t_n" -ne "$s_into" ]; then
+    echo "FAIL  debug 12: the tape holds $t_n nodes but check 6 stepped through $s_into — the tape is not recording every visit, so a search over it can miss stops the run would have found"; ok=0
+elif [ "$t_f1" != "SAME #0 APP frame1 bt: MAIN" ]; then
+    echo "FAIL  debug 12: tape forward search gave '$t_f1', expected 'SAME #0 APP frame1 bt: MAIN'"; ok=0
+elif [ "$t_f2" != "SAME #1 VAR frame1 bt: MAIN" ]; then
+    echo "FAIL  debug 12: tape second forward search gave '$t_f2', expected 'SAME #1 VAR frame1 bt: MAIN'"; ok=0
+elif [ "$t_bk" != "SAME #7 VAR frame2 bt: y <- MAIN" ]; then
+    echo "FAIL  debug 12: tape backward search gave '$t_bk', expected 'SAME #7 VAR frame2 bt: y <- MAIN' — the tape and the recompute path disagree, and the recompute path is the definition"; ok=0
+else
+    echo "PASS  debug 12: the tape agrees with recomputation on all three searches, by VALUE not just verdict ($t_f1), and holds $t_n nodes — the same count check 6 reached by stepping"
+fi
+
+# ── 13. host == VM ─────────────────────────────────────────────────────────
 #   codegen.la resolves debug_eval.la's `import("eval.la")` at COMPILE time and
 #   lowers the merged table; the VM has no notion of import. Costly (~11 min:
 #   secd.la build + codegen over eval.la + debug_eval.la), so it is skippable
 #   for a quick loop — but skipping is ANNOUNCED, never silent.
 if [ "${SKIP_VM:-0}" = 1 ]; then
-    echo "SKIP  debug 12: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
+    echo "SKIP  debug 13: host==VM skipped by SKIP_VM=1 (the expensive half — do not read a green here as engine agreement)"
 else
     rm -f logos_secd logos_program.bin logos_source.la
     timeout 900 ./tiny_host secd.la >/dev/null 2>&1
     if [ ! -x logos_secd ]; then
-        echo "SKIP  debug 12: could not build logos_secd from secd.la — no VM to compare against"
+        echo "SKIP  debug 13: could not build logos_secd from secd.la — no VM to compare against"
     else
         cp debug_eval.la logos_source.la
         timeout 1800 ./tiny_host codegen.la >/dev/null 2>&1
         if [ ! -s logos_program.bin ]; then
-            echo "FAIL  debug 12: codegen produced no program from debug_eval.la"; ok=0
+            echo "FAIL  debug 13: codegen produced no program from debug_eval.la"; ok=0
         else
             V=$(timeout 600 ./logos_secd 2>&1)
             if [ "$V" = "$H" ]; then
-                echo "PASS  debug 12: host == VM — byte-identical output from tiny_host and the native SECD VM"
+                echo "PASS  debug 13: host == VM — byte-identical output from tiny_host and the native SECD VM"
             else
-                echo "FAIL  debug 12: host and VM disagree"
+                echo "FAIL  debug 13: host and VM disagree"
                 echo "        host $(printf '%s\n' "$H" | grep -c .) lines, VM $(printf '%s\n' "$V" | grep -c .) lines"
                 #   ★ NOT `diff <(…) <(…)`: process substitution is a BASHISM and
                 #   this gate is #!/bin/sh (dash), where it is a syntax error that

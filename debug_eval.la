@@ -256,14 +256,23 @@ glyph STOP_REC = la i. la d. la ast. la env. la stk.
     (la n.
     (la head.
     (la tail.
-        PAIR(i)(PAIR(n)(PAIR(concat(head)(tail))(env)))
+        PAIR(i)(PAIR(n)(PAIR(concat(head)(tail))(PAIR(env)(PAIR(ast)(PAIR(stk)(d))))))
     )(concat(concat(" frame")(int_to_str(n)))(concat(" bt: ")(SHOW_STK(stk))))
     )(concat(concat("#")(int_to_str(i)))(concat(" ")(AST_KIND(ast))))
     )(STK_LEN(stk))
+#   ★ SLICE 11 WIDENS THE RECORD TO EVERYTHING A PREDICATE NEEDS. Until now
+#   a stop carried what a READER needs — ordinal, frame depth, a rendered
+#   line — plus the env slice 8 added for inspection. A materialised tape has
+#   to carry what a PREDICATE needs, because the whole point is to ask the
+#   same questions of a recorded node that were previously asked of a live
+#   one: (d, ast, env, stk) is exactly the breakpoint signature.
 glyph STOP_I = la r. FST(r)
 glyph STOP_N = la r. FST(SND(r))
 glyph STOP_S = la r. FST(SND(SND(r)))
-glyph STOP_E = la r. SND(SND(SND(r)))
+glyph STOP_E = la r. FST(SND(SND(SND(r))))
+glyph STOP_A = la r. FST(SND(SND(SND(SND(r)))))
+glyph STOP_K = la r. FST(SND(SND(SND(SND(SND(r))))))
+glyph STOP_D = la r. SND(SND(SND(SND(SND(SND(r))))))
 
 #   The FIRST match strictly after `after` is kept and later ones ignored:
 #   that is what makes it "the NEXT stop" rather than "a stop".
@@ -852,4 +861,95 @@ glyph MAIN_BACK = SEQ(SEQ(SEQ(SEQ(SEQ(
     SHOW_STOP("  last ")(BK_LAST)))(
     print("--- back: end ---"))
 
-glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK)
+# ── THE MATERIALISED TAPE — slice 11 ─────────────────────────────────
+#   ★ THE COST SLICE 10 MADE UNAVOIDABLE. Recomputing history instead of
+#   storing it is what made reverse stepping nearly free — but every search,
+#   forward or backward, re-runs the WHOLE program, so an n-step session is
+#   n full re-executions, and a watchpoint re-runs it once per change while
+#   evaluating its expression at every node of every run. Correct, and
+#   quadratic.
+#
+#   The tape is the other half of that trade: walk once, keep every visit,
+#   and answer afterwards from the record. Recomputation stays the
+#   DEFINITION — it needs no storage and cannot go stale — while the tape is
+#   an optimisation that must AGREE with it. Which is exactly why the gate
+#   asserts agreement between the two rather than testing the tape alone: an
+#   optimisation checked only against itself is not checked.
+glyph REC_ALL = la fired. la i. la d. la ast. la env. la stk. la old.
+    CONS(STOP_REC(i)(d)(ast)(env)(stk))(old)
+
+glyph REV = Z(la self. la l. la acc.
+    IF(ENV_MORE(l))(la _.
+        self(ENV_TAIL(l))(CONS(ENV_HEAD(l))(acc))
+    )(la _.
+        acc
+    ))
+
+glyph TAPE = la gl.
+    (la g.
+        IF(IS_SOME(g))(la _.
+            REV(ST_F(SND(DEBUG_EVAL_ST(FALSE)(REC_ALL)(BRK_NONE)(ST_MK(0)(NIL))(0)(R_VAL(g))(NIL)(CONS("MAIN")(NIL))(gl))))(NIL)
+        )(la _.
+            error("debug_eval: no glyph: MAIN")
+        )
+    )(LIST_FIND("MAIN")(gl))
+
+#   The same two searches, over the record instead of the run. A tape entry
+#   carries (d, ast, env, stk), so the SAME predicate applies unchanged —
+#   no second predicate language, nothing to keep in step.
+glyph TAPE_FIND = la brk. la after. Z(la self. la t.
+    IF(ENV_MORE(t))(la _.
+        (la r.
+            IF(lt(after)(STOP_I(r)))(la _.
+                IF(brk(STOP_D(r))(STOP_A(r))(STOP_E(r))(STOP_K(r)))(la _.
+                    OPT_SOME(r)
+                )(la _. self(ENV_TAIL(t)))
+            )(la _. self(ENV_TAIL(t)))
+        )(ENV_HEAD(t))
+    )(la _. OPT_NONE))
+
+glyph TAPE_FIND_BACK = la brk. la before. la t.
+    Z(la self. la l. la best.
+        IF(ENV_MORE(l))(la _.
+            (la r.
+                IF(lt(STOP_I(r))(before))(la _.
+                    IF(brk(STOP_D(r))(STOP_A(r))(STOP_E(r))(STOP_K(r)))(la _.
+                        self(ENV_TAIL(l))(OPT_SOME(r))
+                    )(la _. self(ENV_TAIL(l))(best))
+                )(la _. self(ENV_TAIL(l))(best))
+            )(ENV_HEAD(l))
+        )(la _. best)
+    )(t)(OPT_NONE)
+
+glyph SAME_STOP = la a. la b.
+    IF(IS_SOME(a))(la _.
+        IF(IS_SOME(b))(la _.
+            IF(str_eq(STOP_S(R_VAL(a)))(STOP_S(R_VAL(b))))(la _. "SAME")(la _. "DIFFER")
+        )(la _. "DIFFER")
+    )(la _.
+        IF(IS_SOME(b))(la _. "DIFFER")(la _. "SAME")
+    )
+
+glyph TP = TAPE(BK_GL)
+
+#   ★ "SAME" ALONE HAS A VACUITY HOLE: SAME_STOP reports SAME when BOTH
+#   sides are empty, so two searches that each found nothing would agree
+#   perfectly. The tape's own stop is therefore printed beside the verdict,
+#   and the gate asserts the VALUE as well as the agreement — the same
+#   reason check 3 counts breakpoints rather than trusting that they fired.
+glyph SHOW_OPT = la o.
+    IF(IS_SOME(o))(la _. STOP_S(R_VAL(o)))(la _. "(none)")
+
+glyph TP_F1 = TAPE_FIND(STEP_OVER(2))(sub(0)(1))(TP)
+glyph TP_F2 = TAPE_FIND(STEP_OVER(2))(STOP_I(R_VAL(BK_F1)))(TP)
+glyph TP_BK = TAPE_FIND_BACK(STEP_OVER(2))(99)(TP)
+
+glyph MAIN_TAPE = SEQ(SEQ(SEQ(SEQ(SEQ(
+    print("--- tape: recompute vs materialised ---"))(
+    print(concat(concat("  fwd1 ")(SAME_STOP(BK_F1)(TP_F1)))(concat("  ")(SHOW_OPT(TP_F1))))))(
+    print(concat(concat("  fwd2 ")(SAME_STOP(BK_F2)(TP_F2)))(concat("  ")(SHOW_OPT(TP_F2))))))(
+    print(concat(concat("  back ")(SAME_STOP(BK_LAST)(TP_BK)))(concat("  ")(SHOW_OPT(TP_BK))))))(
+    print(concat("  nodes on tape ")(int_to_str(STK_LEN(TP))))))(
+    print("--- tape: end ---"))
+
+glyph MAIN = SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(SEQ(MAIN_TRACE)(MAIN_BREAK))(MAIN_STACK))(MAIN_COND))(MAIN_STEP))(MAIN_DRIVE))(MAIN_ASK))(MAIN_MERGED))(MAIN_WATCH))(MAIN_BACK))(MAIN_TAPE)

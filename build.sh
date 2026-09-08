@@ -7583,6 +7583,17 @@ bash kernel/gate_with_ok.sh || exit 1   # WITH_OK host_image == metal_image, the
 # the first and last qualifying nodes below it coincide), but a step back from
 # BEYOND the end, where keep-first and keep-last finally differ.
 #
+# Slice 11 repays what slice 10 cost. Recomputing history means every search
+# re-runs the whole program, so an n-step session is n re-executions; the tape
+# walks once and answers from the record. Recomputation stays the DEFINITION
+# and the tape is an OPTIMISATION that must agree with it — the gate compares
+# the two paths rather than testing the tape alone, because an optimisation
+# verified only against itself is not verified, and if they disagree the
+# recompute path is the one that is right. Two vacuity guards matter here: the
+# verdict "SAME" is true when BOTH searches find nothing, so the tape's stop is
+# asserted by VALUE beside it; and the tape's node count is cross-checked
+# against the count check 6 reaches independently by stepping.
+#
 # Invoked as ./gate_debug.sh, NOT `bash gate_debug.sh`, deliberately: its
 # shebang is #!/bin/sh so the audit runs it under dash, which is where a
 # bashism in a FAILURE branch gets caught. Running it under bash would hide
