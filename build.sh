@@ -2469,9 +2469,21 @@ say "LA linker: N objects -> a running ET_EXEC, no ld (link.la, track B)"
 # the three gates above over the worktree's link_inputs.txt.
 ./gate_link_e2e.sh    || ok=0
 # gate_link_layout.sh — WIRED 2026-09-08, and it had NEVER been run by a build.
-# ★ MEASURED, not inferred: `git log -S gate_link_layout.sh -- build.sh` returns
-# NOTHING — it was not removed at some point, it was never added. Nothing else
-# invoked it either. And it is the ONLY build-reachable cover for
+# ★ MEASURED, not inferred — but NOT the way an earlier draft of this comment
+# said. `git log -S` is the WRONG instrument for "was this ever wired": it
+# reports only commits where the occurrence COUNT changes, and it does not
+# examine merge diffs at all unless asked. The linker gates were wired inside a
+# merge (0184d14 "Merge kernel-k1 into track-b, and wire the linker gates into
+# build.sh"), so plain `-S` reports NOTHING for gate_link.sh and
+# gate_link_reloc.sh — both of which have been wired and running for weeks.
+# A false NEVER, on this very file. The sound test is a direct presence scan:
+#   for c in $(git rev-list --all -- build.sh); do
+#     git show "$c:build.sh" | grep -q '^\./gate_link_layout.sh' && echo "$c"
+#   done
+# That returns exactly ONE revision across all 236 build.sh revisions on ALL
+# branches: the commit that added this line. So it was never wired — the
+# conclusion held, the earlier reasoning for it did not.
+# And it is the ONLY build-reachable cover for
 # `link_layout.la`: nothing imports the module, and exactly two gates exercise
 # it — this one and gate_link_kernel.sh (deliberately on-demand, ~36 min). So a
 # committed 9 KB module had ZERO enforcement in the build — a regression in it
@@ -2487,6 +2499,15 @@ say "LA linker: N objects -> a running ET_EXEC, no ld (link.la, track B)"
 # at single-byte resolution AND names the offending address.
 # Costs 23 s measured alone, 38 s under two concurrent builds — cheap either way.
 ./gate_link_layout.sh || ok=0
+# gate_seam_asm_link.sh is deliberately NOT wired here, and this note exists so
+# that stays a DECISION rather than the accident gate_link_layout.sh was. It is
+# green (68 s), but its producer half is track A's asm.la: it stages
+# `kernel-k1:asm.la` read-only and FAILS — it does not SKIP — if that half
+# regresses. Wiring it would turn B's unattended build red on another track's
+# move, which is the same reason gate_link_e2e.sh documents its SKIP fallback
+# above. It runs from run_link_regress.sh instead, on demand, as
+# gate_link_kernel.sh does. Found 2026-09-08: it was invoked by NOTHING and the
+# exclusion was undocumented — my own gate_link*.sh sweep glob had missed it.
 [ "$ok" -eq 1 ] || exit 1
 
 

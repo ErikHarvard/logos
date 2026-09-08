@@ -8,7 +8,12 @@ pass=0; fail=0
 # in the version committed that morning. It is the only build-reachable cover for
 # link_layout.la, and it had never been run by build.sh either, so the module had
 # no enforcement anywhere. Listed second: it is cheap (38 s) and fails fast.
-for g in gate_link_reloc.sh gate_link_layout.sh gate_link.sh gate_link_nsec.sh gate_link_script.sh gate_link_e2e.sh gate_link_kernel.sh; do
+# ★ gate_seam_asm_link.sh added 2026-09-08: it was invoked by NOTHING anywhere
+# and its exclusion was undocumented (my gate_link*.sh sweep glob missed it —
+# it does not match that prefix). It is not in build.sh for a STATED reason
+# (see there): it fails rather than skips when track A's asm.la half regresses.
+# On-demand here is where it belongs, alongside gate_link_kernel.sh.
+for g in gate_link_reloc.sh gate_link_layout.sh gate_link.sh gate_link_nsec.sh gate_link_script.sh gate_link_e2e.sh gate_seam_asm_link.sh gate_link_kernel.sh; do
   [ -x "$g" ] || { echo "SKIP  $g (not executable)"; continue; }
   s=$(date +%s)
   out=$(timeout 3600 ./"$g" 2>&1)

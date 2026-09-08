@@ -977,15 +977,19 @@ The section above ends *"all eight gates this track owns have evidence."* True,
 and it turned out to be the wrong question. **`gate_link_layout.sh` had a
 documented, single-byte red path — and nothing anywhere ran it.**
 
-**Measured, not inferred:**
+**Measured, not inferred** — though the first version of this section reached
+the right conclusion by an unsound route, corrected below in
+*"the instrument was wrong too"*. The sound measurement is a direct presence
+scan over every historical revision of `build.sh`, on every branch:
 
-    grep -c './gate_link_layout.sh' build.sh        -> 0
-    git log -S'gate_link_layout.sh' -- build.sh     -> NOTHING
+    for c in $(git rev-list --all -- build.sh); do
+      git show "$c:build.sh" | grep -q '^\./gate_link_layout.sh' && echo "$c"
+    done
 
-The second is the one that settles it: the gate was not wired and later removed,
-**it was never wired at all**, so there is no decision to recover and no comment
-explaining an exclusion. `run_link_regress.sh` omitted it too — including in the
-copy committed that same morning, by me.
+**One revision out of 236** — the commit that wired it. It was never wired, so
+there is no decision to recover and no comment explaining an exclusion.
+`run_link_regress.sh` omitted it too — including in the copy committed that same
+morning, by me.
 
 **★ AND IT IS THE ONLY BUILD-REACHABLE COVER FOR `link_layout.la`.** Nothing
 `import`s the module, so its only cover is what a gate runs. Exactly two gates
@@ -1030,3 +1034,56 @@ either way, which is why no cost argument justified leaving it out.
 link, documented on the board as on-demand. It is excluded for a stated reason;
 `gate_link_layout.sh` was excluded for none. Those are different situations and
 only one of them was a defect.
+
+### ⬥ The instrument was wrong too (same day, caught before it spread far)
+
+The first draft of this slice settled "was it ever wired" with
+`git log -S'<gate>' -- build.sh` returning nothing, and I recommended that test
+to every other track on the board. **It is the wrong instrument and it produces
+false NEVERs.** Two reasons, both load-bearing:
+
+1. `-S` reports only commits where the **occurrence count changes**. A line
+   moved or rewritten without changing the count is invisible.
+2. `-S` **does not examine merge diffs** unless asked (`-m` / `--diff-merges`).
+
+Both linker gates that this repo has actually been running for weeks were wired
+**inside a merge** — `0184d14 "Merge kernel-k1 into track-b, and wire the linker
+gates into build.sh"`. So:
+
+    git log -S'gate_link.sh'       -- build.sh   -> NOTHING   (it IS wired)
+    git log -S'gate_link_reloc.sh' -- build.sh   -> NOTHING   (it IS wired)
+    git log -S'gate_link_e2e.sh'   -- build.sh   -> 80e9224   (found: not a merge)
+
+The third line is why it looked trustworthy: it works for gates wired by an
+ordinary commit, which is most of them. **A detector that is right on the cases
+you spot-check and wrong on the case you are deciding is worse than no detector**
+— it launders a guess into a measurement. The conclusion about
+`gate_link_layout.sh` survived only because the presence scan independently
+confirms it (1 of 236). Had it not, I would have committed a false finding with
+a proof attached.
+
+⇒ This is the pattern of the slice itself, one turn deeper. The slice says
+*evidence a gate discriminates is not evidence it runs*. The instrument says
+**evidence a method works on the cases you tested is not evidence it answers the
+case you are asking.** Red-test the instrument against a case whose answer you
+already know — here, a gate you KNOW is wired must not come back NEVER.
+
+### ⬥ And the sweep glob missed a third dead gate
+
+The same day I wrote *"all eight gates this track owns"*, the sweep behind it
+globbed `gate_link*.sh`. **`gate_seam_asm_link.sh` does not match that prefix**,
+and it is invoked by **nothing** — not `build.sh`, not `run_link_regress.sh`, not
+any tracked script — with no comment anywhere explaining the exclusion. A cross-
+tree sweep run from the hub the same afternoon reported this tree as *2 dead, 0
+undocumented*; the true figure was **3 dead, 1 undocumented**, and the gap is the
+glob. Enumerate `gate_*.sh`, never a narrower prefix that happens to match the
+gates you were thinking about.
+
+Resolved not by wiring it into `build.sh` but by **stating the exclusion**: it is
+green (68 s), but its producer half is track A's `asm.la` — it stages
+`kernel-k1:asm.la` read-only and **fails rather than skips** if that half
+regresses, so wiring it would turn B's unattended build red on another track's
+move (the reason `gate_link_e2e.sh` documents its own SKIP fallback). It now runs
+from `run_link_regress.sh`, on demand, alongside `gate_link_kernel.sh`. An
+excluded gate needs a runner and a stated reason; this one now has both.
+
