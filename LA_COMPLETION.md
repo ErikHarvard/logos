@@ -471,6 +471,27 @@ every item below cites the ruling rather than inferring one.
 
 ## TIER 1 — ROOT CAUSES (fixing these prevents whole defect classes)
 
+- `[ ]` **The Codex's own integration gate is unimplemented** — `crit:compliance`
+  (`CODEX_AUTOPOIETICUS.tex` :816-:833), the **Ontosyntactic Compliance
+  Criterion**: *every* component integrated into LogOS must satisfy five
+  conditions — (i) `Id(C): C ≡ C`, (ii) `NC(C): ¬(C ∧ ¬C)`, (iii) `EM(C): C ∨ ¬C`,
+  (iv) `TC(C): C(C) = C` (tautological closure), (v) `TTR(C): T(C) ≡ R(C)`. Each
+  condition has a piece — `metalogic.la` carries (i)-(iii) as first-class glyphs,
+  `canon.la`'s `AUTO_OK` is (iv), `aatc.la` is (v) — but **nothing applies the
+  criterion to every component**. There is no per-module compliance sweep in
+  `build.sh`, so a module can enter the tree having satisfied none of the five.
+  Checked functionally, not by name: the only `compliance` in the tree is prose
+  in an `aatc_spec.la:170` comment, and every `TTR` hit is the letters inside
+  "a**ttr**actor" (`naming.la`) — substring artifacts, named here rather than
+  discarded, because a grep that finds nothing is not evidence of absence.
+  Gate: a sweep applying all five conditions to each `.la` module, failing the
+  build on the first non-compliant one. Red path: feed it a module that is
+  self-contradictory by construction (a glyph declared at one arity and defined
+  at another — `specpipe.la`'s DEPLOY already rejects exactly this for (ii), so
+  the red path is known to be reachable) and assert the sweep reports it; then
+  assert the sweep FAILS if the condition list is emptied, so a sweep over zero
+  conditions cannot report green. *Tier 1: this is the criterion by which every
+  other item's output is admitted.*
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
