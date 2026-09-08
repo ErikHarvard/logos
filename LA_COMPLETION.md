@@ -782,6 +782,42 @@ registers. `trimono.la` now gates all three. What remains:
 - `[ ]` **The language deepens with its agents** — the loop optimises COST, never
   DEPTH or expressivity. Needs a depth-directed `selfopt` mode.
 
+### CODEX AUDIT 2026-09-08 — Triadic Convergence is asserted but never computed
+
+- `[ ]` **`thm:triadic` has no implementation** — `CODEX_AUTOPOIETICUS.tex`
+  :516-:528 requires that the three laws' META-COLLAPSES converge on one fixed
+  point: `Id(Id) ≡ NC(NC) ≡ EM(EM) ≡ ∃(∃) ≡ ∃`. `metalogic.la` carries all three
+  laws as first-class glyphs and a witness for each, but the conjunction that
+  looks like it establishes this does not:
+
+      glyph LAWS_AUTOLOGICAL = la _. AND(LAW_IDENTITY(LAW_IDENTITY_G))
+                                       (AND(LAW_IDENTITY(LAW_NONCONTRADICTION_G))
+                                            (LAW_IDENTITY(LAW_EXCLUDED_MIDDLE_G)))
+
+  **All three conjuncts apply `LAW_IDENTITY`.** What it establishes is that each
+  of the three law-GLYPHS is autological under the identity law — a true and
+  worthwhile claim. What it does not do is apply each law to itself:
+  `LAW_NONCONTRADICTION` and `LAW_EXCLUDED_MIDDLE` are never applied to anything
+  here, so `NC(NC)` and `EM(EM)` — the two collapses the theorem is *about* — are
+  never evaluated anywhere in the tree, and neither is their convergence on a
+  common point. A grep for `triadic`/`converg` across `metalogic.la`,
+  `metalogic_spec.la` and `build.sh` finds nothing on this subject (the two
+  `build.sh` hits are asm.la's jump-promotion fixed point and a lexicon PASS
+  line). Gate: compute all three meta-collapses and assert they are pairwise `≡`,
+  and `≡ ∃(∃)`. Red path: replace ONE collapse with a distinct value and assert
+  the gate reports it — a three-way equality where all three sides are computed
+  by the same function passes for any function at all, which is exactly the shape
+  present today. *Tier 2 — it completes a module that already exists rather than
+  starting one.*
+
+  ★ Note for whoever takes this: the name `LAWS_AUTOLOGICAL` reads as covering
+  all three laws, and it covers one applied three times. That is the same shape
+  as `gate_xmssidx.sh` (this morning) — a name asserting a scope the body does
+  not have. It is not a bug in what it computes; it is a gap between what it
+  computes and what its name is read as promising.
+
+---
+
 ### CODEX AUDIT 2026-09-08 — the Seven Modules and the Autoclave hierarchy
 
 `lawbox{The Seven Modules}` (:2691-:2709) names the cryptographic face of the
