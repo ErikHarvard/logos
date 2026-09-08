@@ -1282,3 +1282,78 @@ not an address the linker ever uses; declaring it `global` makes it a real
 definition and it *is* refused. That asymmetry is deliberate and measured, not an
 oversight.
 
+## Slice 17 — the kernel seam gate certified a stale artifact (2026-09-08)
+
+Ran `gate_link_kernel.sh` on demand. **The link failed and the gate did not
+notice**, then reported the failure as something else.
+
+    15:41:53  .kseam/link.log:  error: expression nesting too deep (C stack guard)
+
+`link.la` ran **1h55m** on track D's current `boot.o` (86,656 bytes, sha
+`440822eb…`) and hit the C host's recursion guard. It produced **no image**. The
+substantive result is therefore: *`link.la` cannot currently link that object* —
+the ~36-minute figure was measured on a 39 KB object, this one is 2.2× larger,
+and the guard fires before the DROP curve completes. Not a timeout; the 7200 s
+cap never came near firing.
+
+**★ THE GATE READ IT AS A LAYOUT DEFECT.** Its freshness guard was
+`[ -s "$K/link_out" ]`, which cannot distinguish *"this link produced an image"*
+from *"an image from some previous run is lying around"*. An **Aug 22**
+`link_out` (58,200 bytes) satisfied it, so the `link.la produced no image` branch
+never fired and checks 1-3 ran against a two-week-old image:
+
+    PASS  link_kernel 1: objcopy accepts the LA-linked image
+    PASS  link_kernel 2: entry point 0x10000c == ld's
+    FAIL  link_kernel 3: segment 2 filesz 46067 != ld's 79298
+    link_kernel gate RED   (rc=1)
+
+The gate went red, which looks like the system working — **and that is the trap**.
+The FAIL is real but **misattributed**: 46067 vs 79298 is an image built from a
+53 KB `boot.o` compared against a control built from today's 86 KB one. Nothing
+in the output says the linker produced nothing. A reader would have gone hunting
+for a segment-sizing bug that does not exist.
+
+**★★ AND IT CERTIFIED THE STALE ARTIFACT AS FRESH.** After the failed link it
+wrote `link_out.inputs` with the *current* input hash. Verified: the recomputed
+hash `07c643cb…` matched the stamp, so the **next** run would have skipped the
+link entirely and printed *"reusing link_out — the sha256 … is unchanged since it
+was produced."* False: it was not produced from those inputs. This is exactly what
+the gate's own header warns of — *"a cached artifact is a false-green waiting to
+happen, so freshness is CHECKED, not assumed"* — with the check having a hole the
+comment's confidence concealed. Same shape as slice 16's `SYM_VHIGH`: **prose
+asserting a protection that the code did not implement.**
+
+**The fix, at both independent failure modes.** `rm -f link_out link_out.inputs`
+*before* linking, so the existence test means what it says; and capture the
+link's **exit status** (`lrc`), failing loudly and naming `124` as timeout —
+because a linker can die leaving a stale file (caught by the `rm`) or exit
+non-zero having written a partial one (caught by the status). The stamp is
+written only after both pass.
+
+**Red-tested against the real script**, with the link replaced by a failing stub
+and a stale `link_out` pre-seeded — the exact scenario:
+
+    OLD: no failure reported; ran checks 1-2 on the stale file; WROTE THE STAMP
+    NEW: FAIL link_kernel: link.la exited 1 — no image produced: error:
+         expression nesting too deep (C stack guard)     (stale removed, no stamp)
+
+*Honest limit:* the fix prevents future poisoning; it does **not** detect a stamp
+already poisoned by an earlier run, since that path takes the reuse branch and
+never reaches the new code. The live `.kseam/link_out.inputs` was therefore
+deleted by hand. A stamp recording the *output* hash as well as the inputs would
+close that; not built.
+
+**Separately, check 4 could not run at all**: `SKIP — ld's own image did not boot
+cleanly here (rc=124)`. The **control** does not boot in this environment, so the
+boot comparison has no baseline regardless of the linker. That is not track B's
+to fix, but it means the gate's strongest assertion is currently inert.
+
+⚠ **Method note — the monitor lied, twice, the same way.** Progress checks used
+`pgrep -f 'tiny_host link_reloc'`, which matched **my own `bash -c` wrapper**
+containing that string, so "still linking" was reported at 15:13, 15:17 and 15:58
+for a process that died at 15:41. The same self-match then made `pkill -f` kill
+the shell issuing it. `pgrep`/`pkill -f` match the *whole command line of every
+process, including the one asking* — check `pgrep -x <name>`, or a path that
+cannot appear in the query itself. Fifth instance today of an instrument
+answering honestly about a different object than the one held.
+

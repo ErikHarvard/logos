@@ -70,10 +70,35 @@ stale=0
 [ -f "$K/link_out.inputs" ] || stale=1
 [ "$stale" = 0 ] && [ "$(cat "$K/link_out.inputs" 2>/dev/null)" != "$inhash" ] && stale=1
 if [ "$FORCE" = 1 ] || [ "$stale" = 1 ]; then
-    echo "NOTE  link_kernel: linking with link.la — THIS TAKES ~36 MINUTES (DROP curve on a 39 KB object)"
+    echo "NOTE  link_kernel: linking with link.la — TAKES ~36 MIN ON A 39 KB OBJECT and scales up steeply (DROP curve); a larger boot.o takes proportionally longer"
+    # ★ THE PRIOR ARTIFACT AND ITS STAMP ARE DESTROYED BEFORE WE LINK.
+    #   `[ -s link_out ]` cannot tell "this link produced an image" from "an
+    #   image from some previous run is lying around", and on 2026-09-08 it told
+    #   the wrong one: the link died at 1h55m with `error: expression nesting too
+    #   deep (C stack guard)` and produced NOTHING, an Aug 22 link_out satisfied
+    #   the check, and checks 1-3 then ran against a TWO-WEEK-OLD IMAGE. It
+    #   reported "PASS entry point == ld's" and "FAIL segment 2 filesz 46067 !=
+    #   ld's 79298" — the FAIL is real but MISATTRIBUTED to a layout defect,
+    #   when the cause was that the old image came from a 53 KB boot.o and the
+    #   control from today's 86 KB one. Worse, the stamp was then written, so the
+    #   NEXT run would skip the link and call the stale artifact fresh.
+    #   Removing it first makes the existence test mean what it says.
+    rm -f "$K/link_out" "$K/link_out.inputs"
     ( cd "$K" && printf -- '--script=kernel.ld\nboot.o\n' > link_inputs.txt \
       && timeout 7200 ./tiny_host link_reloc.la ) >"$K/link.log" 2>&1
-    [ -s "$K/link_out" ] || { echo "FAIL  link_kernel: link.la produced no image: $(tail -1 "$K/link.log")"; exit 1; }
+    lrc=$?
+    # ★★ AND THE EXIT STATUS IS CHECKED, not just the artifact. These are two
+    #   independent failures: a linker can die leaving a stale file (caught by the
+    #   rm above) or exit non-zero having written a partial one (caught here).
+    #   tiny_host DOES exit non-zero on the stack guard — verified 2026-09-08,
+    #   rc=1 with that exact message — so this is a live check, not a formality.
+    if [ "$lrc" -ne 0 ]; then
+        [ "$lrc" -eq 124 ] && why="TIMED OUT after 7200s" || why="exited $lrc"
+        echo "FAIL  link_kernel: link.la $why — no image produced: $(tail -1 "$K/link.log")"
+        exit 1
+    fi
+    [ -s "$K/link_out" ] || { echo "FAIL  link_kernel: link.la exited 0 but produced no image: $(tail -1 "$K/link.log")"; exit 1; }
+    # Stamped ONLY after the link both succeeded AND produced an image.
     printf '%s' "$inhash" > "$K/link_out.inputs"
 else
     echo "NOTE  link_kernel: reusing link_out — the sha256 of boot.o + kernel.ld + every link*.la is unchanged since it was produced; FORCE_RELINK=1 to relink"
