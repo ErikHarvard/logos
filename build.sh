@@ -7246,6 +7246,17 @@ bash kernel/gate_hh2.sh || exit 1   # HH2
 bash kernel/gate_hh2b.sh || exit 1   # HH2b
 bash kernel/gate_hh2c.sh || exit 1   # HH2c
 
+say "LogosInit P1 — the kernel process table (fault-isolated processes, per the ruling)"
+# P1 supersedes HH2c's demo: HH2c switches CR3 off a hardcoded `hh2c_stage` byte,
+# which is an if-statement, not a table — and a TWO-process gate cannot tell the
+# difference. P1 asserts THREE ring-3 processes entered from a PCB array the kernel
+# owns, each reading its OWN value at the SAME virtual address.
+bash kernel/gate_p1.sh || exit 1        # P1 three processes, three address spaces, exit 33
+# The red control runs in the build, not just once by hand: with all three PCBs on
+# ONE PML4 the per-process values MUST collapse. If that variant ever passes, the
+# isolation assertion is measuring nothing and the gate says so and fails.
+bash kernel/gate_p1.sh --red || exit 1  # P1 red control — isolation must be falsifiable
+
 say "K6 — ring 3, syscalls, and the typed IPC layer"
 bash kernel/gate_k6a.sh || exit 1   # K6a ring-3 privilege drop
 bash kernel/gate_k6b.sh || exit 1   # K6b the real LA image at ring 3

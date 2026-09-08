@@ -327,11 +327,40 @@ processes, a stage byte, an `iretq` written into the boot path — and K2 answer
 every fault by stopping the machine. Nothing here is a model LA can drive, and
 nothing survives a crash.
 
-### P1 — the kernel process table
+### P1 — the kernel process table — **BUILT + GATED, RED WITNESSED (2026-09-08)**
 Replace HH2c's two-process/one-stage-byte demo with a real PCB array the kernel
 owns: pid, CR3 (its PML4 phys), state (free/runnable/blocked/dead), entry, exit
 status, **and fault cause**. A scheduler over it replaces `.sys_exit`'s hardcoded
 CR3 switch. *Gate:* three processes round-robin and each reports its **own** pid.
+
+**Built 2026-09-08.** `kernel/boot.asm` `%ifdef P1`, gated by `kernel/gate_p1.sh`,
+wired into `build.sh` together with its red control. The transcript:
+
+```
+P1 pid=1 val=A1
+P1 pid=2 val=B2
+P1 pid=3 val=C3
+P1 table drained: every process exited, kernel alive
+```
+
+- **PCB, 64 bytes:** `+0 pid  +8 cr3  +16 state  +24 entry  +32 stack  +40 exit
+  +48 fault`. The fault field is written `-1` and stays unread until P2 — it exists
+  now so the table's shape does not change under the keystone.
+- **Three address spaces.** Each process gets its own PML4 mapping ONE 2 MiB page at
+  the SAME virtual address (`P1_UVA`) onto a DIFFERENT frame, sharing the kernel via
+  `[511]` as supervisor. Every other PD entry is **not present**: a P1 process can
+  address its own page and nothing else.
+- **Identity comes from the table, not the image.** All three processes run the same
+  copied bytes; each learns its pid from a new `getpid` syscall reading
+  `PCB[p1_cur].pid`. A correct pid can therefore only have come from the table —
+  which is also the "who is current" that P2's fault handler needs.
+- **`.sys_exit` no longer ends the machine.** It records the status in the dying
+  process's PCB, marks it dead, moves to the **high kernel stack** (never a process's
+  own memory, which a faulting process could have corrupted), and returns to the
+  scheduler. P2 reaches this same path from a fault handler, with a cause.
+- **Nothing in the scheduler knows how many processes exist** — it walks the table,
+  so a third costs exactly what the second costs. That is the property the
+  `hh2c_stage` byte does not have.
 
 ### P2 — fault attribution and containment ★ THE KEYSTONE
 K2's 32 handlers diagnose and **halt**. They must instead: identify the current
@@ -566,8 +595,9 @@ verifying each brick green before the next.
 
 ### 5.0.1 P1's gate — why the number is THREE
 
-`kernel/gate_p1.sh` + `kernel/build_p1.sh` are **written** (2026-09-06); the
-`boot.asm` half is not, so the gate does not yet run.
+**Status 2026-09-08: the `boot.asm` half is built, the gate runs GREEN, and its red
+has been witnessed four ways (§5.0.2). Both the gate and its red control are wired
+into `build.sh`.**
 
 **The design turns on one number.** HH2c already boots *two* isolated LA
 processes and passes its gate — but it does so with a hardcoded `hh2c_stage`
@@ -587,6 +617,43 @@ space and read the same value, and `gate_p1.sh --red` **requires** that to fail.
 If it passes, no arrangement of memory could ever have failed the isolation
 assertion, and the gate says so in its own output and demands rewriting rather
 than deletion.
+
+### 5.0.2 The reds actually witnessed (2026-09-08), and two defects they found
+
+`--red` is the *designed* control; the other three are the real gate driven red by
+breaking the implementation, restored after each.
+
+| # | Break | Verbatim verdict | rc |
+|---|---|---|---|
+| **--red** | all three PCBs on ONE PML4 (`build_p1.sh --shared`) | `PASS  P1 red control: with one shared PML4 the per-process values collapse (1/3 survived, expected <3)` | 0 |
+| **1** | `P1_NPROC` 3 → 2 (the HH2c shape) | `FAIL  P1: expected exactly 3 processes, saw 2. TWO is the number a hardcoded stage byte can fake (HH2c does); three is what requires a real table and scheduler.` | 1 |
+| **2** | force `P1_SHARED` into the normal build | `FAIL  P1: no 'P1 pid=2 val=B2' on serial — process 2 did not run, or read another process's memory at the shared VA` | 1 |
+| **3** | silence the drained line only (rc stays 33) | `FAIL  P1: the kernel did not outlive its process table — no 'P1 table drained' line.` | 1 |
+
+Break 2 is the one worth reading closely. Under `P1_SHARED` the transcript is
+`pid=1 val=A1 / pid=2 val=A1 / pid=3 val=A1`: **the pids stay correct while the
+values collapse.** The control breaks isolation and *only* isolation — identity
+still comes from the table — so it is evidence about assertion 3 specifically,
+rather than knocking the whole gate over.
+
+**★ DEFECT — the gate could never have gone green.** `gate_p1.sh` as committed at
+`2e8df92` called `CLEAN=$(run_variant)`. Command substitution runs the function in a
+**subshell**, so the `RC=$?` it assigned died there and the caller read an unset `RC`
+defaulting to 1. The exit-33 assertion saw `1` on a kernel that genuinely exited
+`33`. It failed *toward red*, so nothing was ever falsely passed — but a gate that
+cannot pass tests nothing, exactly as a gate that cannot fail tests nothing. Fixed by
+setting `CLEAN`/`RC`/`BUILDFAIL` in the caller and never calling `run_variant` inside
+`$(…)`.
+
+**★ DEFECT — byte-identity is not implied by `%ifdef`.** §5.1 requires every other
+kernel ELF stay byte-identical. The first P1 version had all its *code* inside
+`%ifdef P1` but its twelve `equ` **constants outside**. Result: `.boot32`, `.rodata`,
+`.bss` and `.multiboot` were byte-identical on every target, yet four targets'
+objects **differed** — because a bare `equ` lands in the object's **symbol table**.
+The diagnostic signature is precise: *all sections match but the objects differ →
+look for unguarded constants.* Guarding them fixed it; the sweep then measured
+**19 of 19 targets identical** (default, K2_FAULT, K5_TIMER, HAL2B, HAL4, K6A, K6B,
+K6C, K6C2, K6C3, HH1, HH1B, HH2, HH2B, HH2C, K5B2, K5B2+K5B2_DBG, RING3, IPC).
 
 **Sequencing hazard, recorded because it nearly bit:** `build_p1.sh` writes
 `kernel/entry.inc`, which `build.sh` and `build_hal4g.sh` also write, and

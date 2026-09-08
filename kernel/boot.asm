@@ -84,6 +84,16 @@
   %define IPC
   %define HH2_PTS
 %endif
+; P1: THE KERNEL PROCESS TABLE (LogosInit brick 1 of 7). No LA image and no IPC —
+; a real PCB array the kernel owns (pid, CR3, state, entry, stack, exit status,
+; fault cause) plus a scheduler that enters THREE ring-3 processes in turn, each
+; in its OWN PML4. Replaces HH2c's hardcoded two-process/one-stage-byte demo.
+; Needs the high map (the kernel must survive every CR3 switch) and the RING3
+; machinery (user selectors + TSS).
+%ifdef P1
+  %define HH1_HIGHMAP
+  %define RING3
+%endif
 ; K6c (single-process IPC round-trip) and K6c2 (two ring-3 processes) both need
 ; the RING3 machinery and the IPC channel layer (send/recv + the mailbox array).
 ; IPC is defined for either, so the channel storage + send/recv dispatch assemble
@@ -119,6 +129,28 @@ K6C_SLOTSZ  equ 288
 ; selects the running one.
 SYS_YIELD   equ 0x302
 PCB_SIZE    equ 128
+
+%ifdef P1
+; ── P1: the kernel process table ────────────────────────────────────────────
+; Guarded, and that guard is not cosmetic: a bare `equ` lands in the object's
+; SYMBOL TABLE, so twelve unguarded constants made every other kernel .o differ
+; while every code and data section stayed byte-identical. The standing rule is
+; byte-identity of the ELF, so the constants live inside %ifdef P1 like the code.
+; THREE, not two, and that is the whole design of the gate: HH2c boots two
+; isolated processes off a hardcoded `hh2c_stage` byte, and a two-process gate
+; cannot tell a table from an if-statement. See kernel/gate_p1.sh.
+P1_NPROC      equ 3
+P1_PCB_SZ     equ 64            ; PCB: pid, cr3, state, entry, stack, exit, fault
+P1_ST_FREE    equ 0             ; state values (blocked=4 is reserved for P4)
+P1_ST_RUN     equ 1             ;   runnable
+P1_ST_CUR     equ 2             ;   running
+P1_ST_DEAD    equ 3             ;   exited (P2 adds dead-by-fault)
+P1_UVA        equ 0x10000000    ; the process's one 2 MiB user page (virtual)
+P1_VAL_VA     equ P1_UVA + 0x100000   ; ★ the SHARED VA the isolation assertion reads
+P1_STK_TOP    equ P1_UVA + 0x1F0000   ; ring-3 stack top, inside that same page
+P1_PBASE      equ 0x08000000    ; process i's frame = P1_PBASE + i*2 MiB (128 MiB up)
+P1_SYS_GETPID equ 39            ; getpid() -> the pid the TABLE holds for "current"
+%endif
 
 ; K3b: the LA image's stack top. The native_codegen3 runtime arms a soft stack
 ; guard at STACK_LIMIT = STACK_BASE - 7 MiB (STACK_BASE = the rsp it starts
@@ -1032,6 +1064,186 @@ hh2c_high:
     push    qword 0x20 | 3
     push    qword LA_ENTRY
     iretq
+%elifdef P1
+    ; ===== P1: THE KERNEL PROCESS TABLE — three ring-3 processes from a PCB array =
+    ; HH2c boots two isolated processes off a hardcoded `hh2c_stage` byte: the first
+    ; .sys_exit switches CR3 to B, the second halts. That is an if-statement, not a
+    ; table, and a two-process gate cannot tell the difference. P1 replaces it with a
+    ; real PCB array the kernel owns and a scheduler loop over it. THREE is the
+    ; discriminator: nothing hardcoded for two produces a third.
+    ;
+    ; Each process gets its OWN PML4 mapping ONE 2 MiB user page at the SAME virtual
+    ; address (P1_UVA) onto a DIFFERENT physical frame (P1_PBASE + i*2 MiB), and
+    ; shares the kernel high half via [511] as SUPERVISOR. Each frame carries a
+    ; distinct tag at P1_VAL_VA, so that one VA reads A1/B2/C3 depending only on
+    ; which process is running — HH2's isolation proof, now selected by the CR3 the
+    ; TABLE holds rather than by a hand-written round-trip in boot.
+    mov     ecx, 0xC0000081             ; STAR: sysret -> ring 3 (as K6b/HH2c)
+    xor     eax, eax
+    mov     edx, (0x10 << 16) | 0x08
+    wrmsr
+    mov     rax, HIGH_BASE              ; run the kernel from the high half — it has
+    lea     rbx, [rel p1_high]          ;   to survive every CR3 switch below
+    add     rax, rbx
+    jmp     rax
+p1_high:
+    mov     ecx, 0xC0000082             ; LSTAR -> the HIGH syscall_entry
+    lea     rax, [rel syscall_entry]
+    mov     rdx, rax
+    shr     rdx, 32
+    wrmsr
+
+    ; ── build the three per-process address spaces ──────────────────────────────
+    ;   PML4_i[0]   = pdpt_i | 7   the process's own low half (U=1)
+    ;   PML4_i[511] = pdpt_high|3  the kernel, SUPERVISOR — ring 3 cannot reach it
+    ;   pdpt_i[0]   = pd_i  | 7
+    ;   pd_i[128]   = (P1_PBASE + i*2 MiB) | 0x87   -> VA 0x10000000, 2 MiB, U=1
+    ; Every OTHER pd_i entry stays not-present: a P1 process can address its own
+    ; page and nothing else. Written through the still-live low identity map.
+    xor     ecx, ecx                    ; ecx = i
+.p1_mkas:
+    mov     eax, ecx
+    shl     eax, 12                     ; i * 4096
+    mov     edi, pml4_p
+    add     edi, eax                    ; &pml4_p[i]
+    mov     esi, pdpt_p
+    add     esi, eax                    ; &pdpt_p[i]
+    mov     ebx, pd_p
+    add     ebx, eax                    ; &pd_p[i]
+    mov     eax, esi
+    or      eax, 0x07                   ; present|writable|user
+    mov     [edi], eax
+    mov     dword [edi + 4], 0
+    mov     eax, pdpt_high
+    or      eax, 0x03                   ; present|writable, SUPERVISOR
+    mov     [edi + 511*8], eax
+    mov     dword [edi + 511*8 + 4], 0
+    mov     eax, ebx
+    or      eax, 0x07
+    mov     [esi], eax
+    mov     dword [esi + 4], 0
+    mov     eax, ecx
+    shl     eax, 21                     ; i * 2 MiB
+    add     eax, P1_PBASE
+    or      eax, 0x87                   ; present|writable|user|PS (2 MiB page)
+    mov     [ebx + 128*8], eax          ; PD[128] <-> VA 0x10000000
+    mov     dword [ebx + 128*8 + 4], 0
+    inc     ecx
+    cmp     ecx, P1_NPROC
+    jne     .p1_mkas
+
+    ; ── stamp each process's frame: the payload, and ITS OWN value tag ─────────
+    ; Through the LOW IDENTITY map (still live): frame i is physical P1_PBASE +
+    ; i*2 MiB, so what lands at its offset 0 is what the process sees at P1_UVA,
+    ; and what lands at +1 MiB is what it sees at P1_VAL_VA. Same payload bytes in
+    ; all three; different tag in all three.
+    cld
+    xor     ebx, ebx                    ; ebx = i (rep movsb owns ecx/esi/edi)
+.p1_fill:
+    mov     eax, ebx
+    shl     eax, 21
+    add     eax, P1_PBASE
+    mov     edi, eax                    ; frame i, offset 0        -> VA P1_UVA
+    mov     esi, p1_payload
+    mov     ecx, p1_blob_len
+    rep     movsb
+    mov     eax, ebx
+    shl     eax, 21
+    add     eax, P1_PBASE + 0x100000
+    mov     edi, eax                    ; frame i, offset 1 MiB    -> VA P1_VAL_VA
+    mov     edx, ebx
+    add     dl, 'A'
+    mov     [edi], dl                   ; 'A'+i  ->  A / B / C
+    mov     edx, ebx
+    add     dl, '1'
+    mov     [edi + 1], dl               ; '1'+i  ->  1 / 2 / 3
+    inc     ebx
+    cmp     ebx, P1_NPROC
+    jne     .p1_fill
+
+    ; ── build the PCB array — THE TABLE ────────────────────────────────────────
+    ;   +0 pid   +8 cr3   +16 state   +24 entry   +32 stack   +40 exit   +48 fault
+    ; pid is 1-based (codex :18405 makes PID 1 init; P5 puts init there). The fault
+    ; field is written -1 = "no fault" and stays unread until P2, which is the
+    ; brick that fills it with a vector — the field exists now so the table's shape
+    ; does not change under the keystone.
+    xor     ecx, ecx
+.p1_mkpcb:
+    mov     eax, ecx
+    imul    eax, eax, P1_PCB_SZ
+    mov     edi, p1_pcb
+    add     edi, eax                    ; &PCB[i]
+    mov     eax, ecx
+    inc     eax
+    mov     [edi + 0], eax              ; pid = i + 1
+    mov     dword [edi + 4], 0
+%ifdef P1_SHARED
+    ; ★ THE RED CONTROL (build_p1.sh --shared). Every PCB is pointed at process 0's
+    ; PML4, so all three run in ONE address space and read the SAME frame behind
+    ; P1_VAL_VA. gate_p1.sh --red REQUIRES the val assertions to fail here. Note
+    ; what this control does NOT break: the pid still comes from the table, so a
+    ; green pid with a collapsed val says precisely that isolation — and nothing
+    ; else — is what assertion 3 measures.
+    mov     eax, pml4_p
+%else
+    mov     eax, ecx
+    shl     eax, 12
+    add     eax, pml4_p                 ; cr3 = &pml4_p[i], the process's own
+%endif
+    mov     [edi + 8], eax
+    mov     dword [edi + 12], 0
+    mov     dword [edi + 16], P1_ST_RUN ; state = runnable
+    mov     dword [edi + 20], 0
+    mov     dword [edi + 24], P1_UVA    ; entry
+    mov     dword [edi + 28], 0
+    mov     dword [edi + 32], P1_STK_TOP
+    mov     dword [edi + 36], 0
+    mov     dword [edi + 40], 0         ; exit status
+    mov     dword [edi + 44], 0
+    mov     dword [edi + 48], -1        ; fault cause: none (P2 fills this)
+    mov     dword [edi + 52], -1
+    inc     ecx
+    cmp     ecx, P1_NPROC
+    jne     .p1_mkpcb
+
+    ; ── GDT + TSS in the HIGH half ─────────────────────────────────────────────
+    ; A P1 process's low half maps ONLY its own 2 MiB page, so the GDT and the TSS
+    ; at their LOW addresses are unreachable once CR3 is a process's. Give the TSS
+    ; descriptor a HIGH base and load a HIGH GDTR, both reached through the shared
+    ; [511], so every process's iretq and every ring-3 trap resolves under every
+    ; CR3. (HH2c needed this for the same reason.) Written via the low identity map.
+    mov     rax, HIGH_BASE
+    add     rax, k6a_tss
+    mov     word [gdt64 + gdt64.tss], 103
+    mov     word [gdt64 + gdt64.tss + 2], ax
+    shr     rax, 16
+    mov     byte [gdt64 + gdt64.tss + 4], al
+    mov     byte [gdt64 + gdt64.tss + 5], 0x89
+    mov     byte [gdt64 + gdt64.tss + 6], 0
+    shr     rax, 8
+    mov     byte [gdt64 + gdt64.tss + 7], al
+    mov     rax, HIGH_BASE
+    add     rax, k6a_tss
+    shr     rax, 32
+    mov     dword [gdt64 + gdt64.tss + 8], eax
+    mov     dword [gdt64 + gdt64.tss + 12], 0
+    mov     rax, HIGH_BASE
+    add     rax, k6a_kstack_top
+    mov     [k6a_tss + 4], rax          ; rsp0 = the HIGH kernel stack
+    mov     word [k6a_tss + 102], 104
+    mov     ax, [gdt64.ptr]             ; GDT limit
+    mov     [p1_gdtr], ax
+    lea     rax, [rel gdt64]            ; running high -> a HIGH gdt64 base
+    mov     [p1_gdtr + 2], rax
+    lgdt    [p1_gdtr]                   ; GDTR base now HIGH (survives CR3 switches)
+    mov     ax, gdt64.tss
+    ltr     ax
+
+    ; ── run the table ──────────────────────────────────────────────────────────
+    mov     rax, HIGH_BASE              ; the scheduler runs on the HIGH kernel
+    add     rax, k6a_kstack_top         ;   stack — shared by every address space,
+    mov     rsp, rax                    ;   and never a process's own memory
+    jmp     p1_sched
 %else
     ; --- hand off to the Lingua-Adamica kernel image (its prol) ---
     mov     rax, LA_ENTRY
@@ -1059,6 +1271,10 @@ syscall_entry:
     cmp     rax, SYS_YIELD
     je      .sys_yield
 %endif
+%ifdef P1
+    cmp     rax, P1_SYS_GETPID
+    je      .sys_getpid
+%endif
     ; unknown syscall: return 0, keep going
     xor     rax, rax
     jmp     .ret
@@ -1078,6 +1294,19 @@ syscall_entry:
 .w_done:
     mov     rax, r10
     jmp     .ret
+%ifdef P1
+.sys_getpid:
+    ; getpid() -> the pid the TABLE holds for whoever the scheduler made current.
+    ; The pid is NOT in the process image: all three processes execute the same
+    ; copied bytes, so a correct pid here can only have come from PCB[p1_cur].
+    ; (P2's fault handler needs this same "who is current" to attribute a fault.)
+    mov     eax, [rel p1_cur]
+    imul    eax, eax, P1_PCB_SZ
+    lea     r8, [rel p1_pcb]
+    add     r8, rax
+    mov     rax, [r8]                   ; PCB[cur].pid
+    jmp     .ret
+%endif
 %ifdef IPC
 .sys_send:
     ; send(rdi=chan, rsi=type, rdx=buf, r10=len) -> deposit a typed message into
@@ -1179,6 +1408,23 @@ syscall_entry:
     jmp     k6c2_run
 %endif
 .sys_exit:
+%ifdef P1
+    ; P1: exit(rdi=code) is not the end of the machine — it is the death of ONE
+    ; process. Record the status in ITS PCB, mark it dead, and return to the
+    ; scheduler. HH2c instead flipped a stage byte and hardcoded the next CR3;
+    ; nothing on this path knows how many processes exist. P2 reaches this same
+    ; "the process ends, the run continues" path from a fault handler, with a cause.
+    mov     eax, [rel p1_cur]
+    imul    eax, eax, P1_PCB_SZ
+    lea     r8, [rel p1_pcb]
+    add     r8, rax
+    mov     dword [r8 + 16], P1_ST_DEAD
+    mov     [r8 + 40], rdi              ; exit status, kept in the table
+    mov     rax, HIGH_BASE              ; leave the dying process's stack behind:
+    add     rax, k6a_kstack_top         ;   the scheduler must not run on memory a
+    mov     rsp, rax                    ;   process could have corrupted
+    jmp     p1_sched
+%endif
 %ifdef HH2C
     ; HH2c process scheduler: the FIRST exit is process A finishing (it has already
     ; send()'d into the shared channel) -> switch CR3 to process B and enter it; the
@@ -1331,6 +1577,116 @@ serial_putc:
     pop     rdx
     pop     rax
     ret
+
+%ifdef P1
+; ---------------------------------------------------------------------
+;  p1_sched — THE SCHEDULER OVER THE PROCESS TABLE.
+;
+;  Runs in the high half on the high kernel stack, which every process shares via
+;  PML4[511], so it stays mapped across every CR3 switch. It scans the PCB array
+;  for a RUNNABLE entry, loads that PCB's CR3, and enters the process at ring 3
+;  with ITS entry and ITS stack. When no runnable entry remains, the run is over:
+;  say so and exit 33.
+;
+;  This is what replaces HH2c's `hh2c_stage` byte. Note what is NOT in this loop:
+;  the number of processes. It walks the table, so a third process costs exactly
+;  what the second costs — which is the property a hardcoded stage byte does not
+;  have, and the reason gate_p1.sh asserts three.
+; ---------------------------------------------------------------------
+p1_sched:
+    xor     ecx, ecx                    ; ecx = index into the table
+.p1_scan:
+    cmp     ecx, P1_NPROC
+    jae     .p1_none
+    mov     eax, ecx
+    imul    eax, eax, P1_PCB_SZ
+    lea     r8, [rel p1_pcb]
+    add     r8, rax                     ; r8 = &PCB[i] (high alias, stays mapped)
+    cmp     dword [r8 + 16], P1_ST_RUN
+    je      .p1_enter
+    inc     ecx
+    jmp     .p1_scan
+
+.p1_enter:
+    mov     [rel p1_cur], ecx           ; who is current — getpid and .sys_exit
+    mov     dword [r8 + 16], P1_ST_CUR  ;   both resolve the pid through this
+    mov     rax, [r8 + 8]               ; CR3 out of the TABLE, not a fixed label
+    mov     cr3, rax
+    push    qword 0x18 | 3              ; SS  = user data, RPL 3
+    push    qword [r8 + 32]             ; RSP = this process's stack top
+    push    qword 0x002                 ; RFLAGS (IF clear — P1 has no timer, so
+    push    qword 0x20 | 3              ;   the transcript order is deterministic)
+    push    qword [r8 + 24]             ; RIP = this process's entry
+    iretq                               ; -> ring 3, in its own address space
+
+.p1_none:
+    ; Every process in the table has exited and the KERNEL is still here to say so.
+    ; That is the point of a table: a process ending is an entry changing state,
+    ; not the end of the run. (P2 makes the same true of a process FAULTING.)
+    lea     r8, [rel p1_done_msg]
+    mov     r9d, p1_done_len
+.p1_dmsg:
+    test    r9, r9
+    jz      .p1_exit
+    mov     dil, [r8]
+    call    serial_putc
+    inc     r8
+    dec     r9
+    jmp     .p1_dmsg
+.p1_exit:
+    mov     al, DBG_OK                  ; QEMU isa-debug-exit -> exit code 33
+    mov     dx, DBG_EXIT
+    out     dx, al
+    cli
+.p1_hang:
+    hlt
+    jmp     .p1_hang
+
+p1_done_msg: db "P1 table drained: every process exited, kernel alive", 10
+p1_done_len  equ $ - p1_done_msg
+
+; ---------------------------------------------------------------------
+;  P1 ring-3 process payload — ONE image, run by all three processes.
+;
+;  In .boot32 (identity-mapped low RAM), so p1_payload is a valid physical copy
+;  source. It is copied into each process's own 2 MiB frame and runs at ring 3
+;  from P1_UVA, so it must be position-independent: every message reference is
+;  RIP-relative and the offsets survive the copy.
+;
+;  It prints two facts and neither one is in these bytes:
+;    - its pid, from getpid() -> the kernel's PCB for whoever is current;
+;    - the tag at P1_VAL_VA, a fixed VA that resolves to ITS OWN frame.
+;  Same bytes in all three processes, different output in all three. Identity
+;  comes from the table; content comes from the address space.
+; ---------------------------------------------------------------------
+p1_payload:
+    mov     eax, P1_SYS_GETPID
+    syscall                             ; -> rax = PCB[current].pid
+    add     al, '0'                     ; P1 pids are 1..3: one digit
+    lea     rbx, [rel p1_piddigit]
+    mov     [rbx], al
+    mov     esi, P1_VAL_VA              ; the SAME VA in every process ...
+    mov     al, [rsi]                   ; ... a DIFFERENT frame behind it
+    lea     rbx, [rel p1_valtag]
+    mov     [rbx], al
+    mov     al, [rsi + 1]
+    mov     [rbx + 1], al
+    mov     eax, 1                      ; write(fd=1, buf, len) -> COM1 via ring 0
+    mov     edi, 1
+    lea     rsi, [rel p1_line]
+    mov     edx, p1_line_len
+    syscall
+    mov     eax, 60                     ; exit(0) -> the scheduler, not the halt
+    xor     edi, edi
+    syscall
+p1_line:      db "P1 pid="
+p1_piddigit:  db "0"
+              db " val="
+p1_valtag:    db "??"
+              db 10
+p1_line_len   equ $ - p1_line
+p1_blob_len   equ $ - p1_payload
+%endif
 
 %ifdef K6A
 ; ---------------------------------------------------------------------
@@ -1551,6 +1907,17 @@ hh2c_stage: resb 1                      ; 0 = A running, 1 = B (the exit-driven 
 align 8
 hh2c_gdtr:  resb 10                     ; a HIGH-based GDTR (limit:2 + base:8)
 %endif
+%ifdef P1
+align 4096
+pml4_p:  resb P1_NPROC * 4096           ; P1: one PML4/PDPT/PD per process — each
+pdpt_p:  resb P1_NPROC * 4096           ;   maps its OWN 2 MiB page at P1_UVA and
+pd_p:    resb P1_NPROC * 4096           ;   shares the kernel via [511]
+align 8
+p1_pcb:  resb P1_NPROC * P1_PCB_SZ      ; ★ THE PROCESS TABLE the kernel owns
+p1_cur:  resd 1                         ; index of the running process
+align 8
+p1_gdtr: resb 10                        ; a HIGH-based GDTR (limit:2 + base:8)
+%endif
 %ifdef HH2B
 align 4096
 pml4_proc: resb 4096                    ; HH2b: the process's own PML4 ([0]=user low,
@@ -1598,18 +1965,21 @@ k6c2_scratch:                           ; 2 qwords: frees rax + a base reg in .s
 ; zero bytes unless assembled with -dHAL2B, so other kernel ELFs stay identical.
 %include "kbdirq.asm"
 
-; K6a/K6c/K6c2 are payload-based ring-3 probes and HH2 is a ring-0 page-table demo
-; — none jump to the LA image, so the incbin is skipped for them, keeping those
-; builds self-contained.
+; K6a/K6c/K6c2 are payload-based ring-3 probes, HH2 is a ring-0 page-table demo,
+; and P1 runs three copies of its own ring-3 payload out of a process table —
+; none jump to the LA image, so the incbin is skipped for them, keeping those
+; builds self-contained (P1 therefore needs no native_codegen3 and no tiny_host).
 %ifndef K6A
 %ifndef K6C
 %ifndef K6C2
 %ifndef HH2
+%ifndef P1
 section .la_image
 la_image_start:
 incbin "native_codegen3_out"
 la_image_end:
 IMAGE_LEN equ la_image_end - la_image_start   ; HH2c copies this many bytes per process
+%endif
 %endif
 %endif
 %endif

@@ -46,21 +46,31 @@ if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
     exit 0
 fi
 
-run_variant() {   # $1 = "" (normal) | "red" ; echoes serial, sets RC
-    ./kernel/build_p1.sh ${1:+--shared} >/dev/null 2>&1 \
-        || { echo "__BUILDFAIL__"; return 1; }
-    OUT=$(timeout 30 qemu-system-x86_64 \
+# Sets CLEAN (the serial transcript), RC (QEMU's exit code) and BUILDFAIL in the
+# CALLER. It must NOT be invoked as `CLEAN=$(run_variant)`: command substitution
+# runs the function in a SUBSHELL, so the RC it assigns dies with that subshell
+# and the caller reads an unset RC. That was a real defect in this gate, and it
+# failed toward red — the exit-33 assertion saw 1 on a kernel that genuinely
+# exited 33, so the gate could never go green no matter what the kernel did.
+# A gate that cannot pass tests nothing, exactly as a gate that cannot fail does.
+run_variant() {   # $1 = "" (normal) | "red"
+    if ! ./kernel/build_p1.sh ${1:+--shared} >/dev/null 2>&1; then
+        BUILDFAIL=1; CLEAN=""; RC=-1; return
+    fi
+    BUILDFAIL=0
+    CLEAN=$(timeout 30 qemu-system-x86_64 \
             -kernel kernel/kernel_p1.elf -m 512 \
             -serial stdio -display none \
             -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
             -no-reboot -no-shutdown 2>/dev/null)
     RC=$?
-    printf '%s' "$OUT" | tr -d '\0'
+    CLEAN=$(printf '%s' "$CLEAN" | tr -d '\0')
 }
 
 # ── the red control, on demand ──────────────────────────────────────────────
 if [ "$MODE" = "--red" ]; then
-    CLEAN=$(run_variant red); RC=${RC:-1}
+    run_variant red
+    [ "$BUILDFAIL" -eq 1 ] && { echo "FAIL  P1 red control: build_p1.sh --shared failed to build"; exit 1; }
     bad=0
     for pair in "1 A1" "2 B2" "3 C3"; do
         set -- $pair
@@ -80,8 +90,8 @@ if [ "$MODE" = "--red" ]; then
 fi
 
 # ── the real gate ───────────────────────────────────────────────────────────
-CLEAN=$(run_variant); RC=${RC:-1}
-printf '%s' "$CLEAN" | grep -qF '__BUILDFAIL__' && { echo "FAIL  P1 gate: build_p1.sh failed"; exit 1; }
+run_variant
+[ "$BUILDFAIL" -eq 1 ] && { echo "FAIL  P1 gate: build_p1.sh failed"; exit 1; }
 seen=$(printf '%s' "$CLEAN" | tr '\n' ' ' | head -c 240)
 
 ok=1
@@ -93,6 +103,9 @@ done
 
 NPROC=$(printf '%s\n' "$CLEAN" | grep -c '^P1 pid=')
 [ "$NPROC" -eq 3 ] || { echo "FAIL  P1: expected exactly 3 processes, saw $NPROC. TWO is the number a hardcoded stage byte can fake (HH2c does); three is what requires a real table and scheduler."; ok=0; }
+
+printf '%s' "$CLEAN" | grep -qF 'P1 table drained' \
+    || { echo "FAIL  P1: the kernel did not outlive its process table — no 'P1 table drained' line. Every process exiting must leave the SCHEDULER running to observe it; if the last exit took the machine down, process death is still an end-of-run and not a table entry changing state (rc=$RC)"; ok=0; }
 
 [ "$RC" -eq 33 ] || { echo "FAIL  P1: exit code != 33 (got $RC — a fault building a PCB, switching CR3, or entering ring 3)"; ok=0; }
 
