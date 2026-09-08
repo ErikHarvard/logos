@@ -800,6 +800,24 @@ registers. `trimono.la` now gates all three. What remains:
 - `[ ]` **The language deepens with its agents** — the loop optimises COST, never
   DEPTH or expressivity. Needs a depth-directed `selfopt` mode.
 
+### CODEX AUDIT 2026-09-08 — a tension that RESOLVES (recorded so it is not re-filed)
+
+`thm:universal-collapse` (:684-:700) states `∀X: X(X) →MC X ≡ ∃(∃) ≡ ∃` — every
+genuine metacursive operation reaches a fixed point. The repo appears to
+contradict it: `DEPTH = la g. g(g)` is the literal infinite descent, and
+`build.sh` asserts `DEPTH(DEPTH)` does **not** terminate (`timeout`, rc 124) on
+both engines. That reads as a code/codex divergence and is not one. The theorem
+quantifies over "any ontologically **genuine** structure (i.e., any structure
+that IS — that participates in Being)", and `swc.la` is exactly the filter for
+that qualifier: it classifies an EAGER unguarded self-application — `la g. g(g)`,
+verbatim — as **ILL**, provably ill-founded, and refuses it *before* evaluation.
+So `DEPTH(DEPTH)` is not a counterexample to the theorem; it is the case the
+theorem's own qualifier excludes and the SWC statically rejects. The guarded form
+`DEPTH_Z = Z` is the one that participates. **Recorded, not filed** — a later
+audit reading either document alone would file this, and it would be wrong.
+
+---
+
 ### CODEX AUDIT 2026-09-08 — Triadic Convergence is asserted but never computed
 
 - `[ ]` **`thm:triadic` has no implementation** — `CODEX_AUTOPOIETICUS.tex`
