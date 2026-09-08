@@ -614,6 +614,52 @@ every item below cites the ruling rather than inferring one.
   assert the sweep FAILS if the condition list is emptied, so a sweep over zero
   conditions cannot report green. *Tier 1: this is the criterion by which every
   other item's output is admitted.*
+
+  ★★ **THE GATE THIS ITEM SPECIFIES WOULD BE VACUOUS — FOUND BY TRYING TO BUILD
+  IT (2026-09-08).** Two corrections to this item's own premise, both measured:
+
+  **(a) The machinery is not absent; it is undriven and shallow.** `aatc.la`
+  exports `SENSE_SRC`/`SENSE_FILE`/`AUDIT_FILE`/`ORGAN_OK`, and `AUDIT_FILE` **is**
+  exercised — on exactly **one** file, `AUDIT_FILE("kernel.la")("MAIN")` at
+  `build.sh:2487`. So "nothing applies the criterion to every component" is right,
+  but the gap is a **driver over all 146 modules plus depth**, not missing
+  machinery. An item that reads as "build it" when the truth is "drive it and
+  deepen it" misdirects whoever picks it up.
+
+  **(b) The criterion cannot distinguish a real module from a one-line stub.**
+  `SENSE_SRC` derives its facts from **text `CONTAINS` checks** — does the source
+  contain `glyph <concept>`, is it non-empty, does it contain `import(`. Measured
+  with `AUDIT_FILE(path)("MAIN")` on the C host:
+
+  | input | verdict |
+  |---|---|
+  | `kernel.la` (the real module) | `TTTT` |
+  | `glyph MAIN = "x"` — one line | `TTTT` |
+  | `glyph MAIN = "x"` + literal non-LA garbage | `TTTT` |
+  | a module with no namesake glyph | `FTTT` |
+  | an empty file | `FTFT` |
+
+  It is **not inert** — positions 1 and 3 discriminate (namesake present,
+  non-empty). But **positions 2 and 4 (`SELF_APPLICATION`, `CLOSURE`) were `T` for
+  every input tested, including the empty file**, and the top three rows are
+  indistinguishable. A sweep over 146 modules built on this would print **146
+  green `TTTT`s** and assert little beyond "the file is non-empty and mentions its
+  own name" — **the exact vacuity this item's own red path was written against**,
+  arriving not as "a sweep over zero conditions" but as four conditions two of
+  which never fire.
+
+  ⚠ **This is NOT a defect in `aatc.la`, which does not overclaim:**
+  `build.sh:2506`'s PASS line says "structural facts, not full spec-verification"
+  in as many words. The defect is in **this item's proposed gate**, which would
+  have built a 146-module green on machinery whose own gate states it cannot carry
+  that weight. ★ Found only by *attempting* the build and measuring the criterion
+  against deliberately non-compliant input — reading the export list showed
+  `MODULE`/`ORGAN_OK`/`AUDIT_FILE` and made the sweep look nearly free, which is
+  how it would have been built. **Revised gate:** first give `SELF_APPLICATION` and
+  `CLOSURE` inputs that make them go `F`, or they are two constants wearing
+  conditions' names; then a predicate that separates `kernel.la` from
+  `glyph MAIN = "x"`. **Red path first, sweep second** — in that order, because the
+  sweep is the part that looks like progress.
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
