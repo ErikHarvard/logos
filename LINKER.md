@@ -73,11 +73,17 @@ most wrong implementations also exit non-zero.
   link order. **Four section kinds**: `.text`, `.rodata`, `.data`, `.bss`.
   Anything else that is `SHF_ALLOC` is **refused by name**, not ignored — which
   is why the reader can be pointed at real gcc objects without silently
-  producing wrong addresses. `.eh_frame` and `.note.gnu.property` are ALLOC and
-  are **deliberately DROPPED** — recorded as a decision, not ignored: `.eh_frame`
-  carries its own relocation section this linker does not apply, so placing it
-  would embed unrelocated unwind data. A symbol in a dropped section is refused
-  BY NAME rather than resolved, so the choice cannot misplace anything silently.
+  producing wrong addresses.
+
+  ⚠ **CORRECTED 2026-09-08 — this paragraph was STALE and understated the
+  linker.** It described `.eh_frame` as deliberately dropped and a symbol in it
+  as refused by name. Both stopped being true at `e1643cb`: `.eh_frame` is
+  **placed, relocated and CIE-merged** (see item 1 under *Next*), `DEFR` puts it
+  in the R segment beside `.rodata`, and a symbol living in it **resolves** via
+  `SYMVAL`. `DROPPABLE` now carries only `.note.gnu.property` plus whatever a
+  script's `/DISCARD/` names. The stale text mattered beyond tidiness: track A is
+  building `asm.la` object emission against this document, and a limitation that
+  no longer exists is something another track designs around for nothing.
   **Real gcc objects link** (verified: asm entry + two gcc objects, exit 43).
 - **Per-segment permissions**: DECLARED by a `PHDRS` block if there is one
   (`FLAGS(7)` really does give RWX — kernel.ld asks for it), otherwise DERIVED
@@ -96,7 +102,10 @@ most wrong implementations also exit non-zero.
 - **Static only.** PLT32 is resolved as PC32, which is correct for a
   self-contained image and **wrong for dynamic linking**; the code says so.
 - **32-bit window**: ELF64 fields are 8 bytes, the low 4 are read. Fine here,
-  wrong above 4 GB.
+  and **REFUSED above 4 GB rather than silently wrong** as of 2026-09-08 — a
+  symbol whose `st_value` high word is non-zero halts with `link: symbol value
+  above 4 GB (32-bit window): <name>` on both the `link_reloc.la` and
+  `link_layout.la` paths. Gated by `gate_link_hiaddr.sh` (wired). See slice 16.
 - The **reader** is general (validated on a real gcc object, 14 sections). The
   **linker** now takes N objects and — as of `bb045e0` — ARBITRARY allocatable
   section names: the no-script default layout groups sections by SHF flags
@@ -1086,4 +1095,69 @@ regresses, so wiring it would turn B's unattended build red on another track's
 move (the reason `gate_link_e2e.sh` documents its own SKIP fallback). It now runs
 from `run_link_regress.sh`, on demand, alongside `gate_link_kernel.sh`. An
 excluded gate needs a runner and a stated reason; this one now has both.
+
+## Slice 16 — the 32-bit window was DECLARED, not enforced (2026-09-08)
+
+`link.la`'s header has said since the beginning that the high word of each
+8-byte ELF64 field is *"checked where it costs nothing so the failure is loud
+rather than silent."* **It was not checked anywhere.** `SYM_VHIGH` — the
+accessor written for exactly that job — was defined, **exported**, and called by
+NOTHING; `link_reloc.la`'s `STAB` record captured `ST_VHI` and never read it.
+Four occurrences in the whole tree: a comment, an export, a definition, and
+`HIGH4` behind it. No call site.
+
+So a symbol at or above 4 GB had its high word **discarded** and linked to its
+low word.
+
+**★ AND THE READ-SIDE HOLE DEFEATED THE WRITE-SIDE GUARD.** `link_reloc.la` has
+`FITS32`, which refuses a value too large to write into a 4-byte field, and it
+*is* wired. It cannot help: a `st_value` of `0x1_0000_0000` **reads** as `0`,
+and `0` fits, so `FITS32` waves it through. The two are the same limit
+approached from opposite directions — writing a value too big, and reading one
+whose size was already thrown away — and only both together close it. A guard on
+the write is worthless while the read silently truncates.
+
+**Measured red path** (the pre-guard linker, this exact fixture):
+
+    rc=0
+      obj2 greet = 4198416
+      resolved greet -> 4198416
+
+`greet` genuinely sits at `0x100000000`; it linked to `0x401010`. Plausible,
+wrong, and **green** — the silent-wrongness class this track exists to refuse.
+After: `link: symbol value above 4 GB (32-bit window): greet`, exit 1.
+
+**Fixed at both address sites**, since two independent paths compute a symbol's
+address: `STADDR` in `link_reloc.la` (guarding the `STAB`/`RSTAB` path) and
+`SYMADDR` in `link_layout.la` (which finally gives the exported `SYM_VHIGH` a
+caller). Both refuse by name.
+
+**`gate_link_hiaddr.sh`, wired into `build.sh` AND `run_link_regress.sh` the same
+day it was written** — this morning's finding was a gate nobody ran, and leaving
+this one unwired would have been that finding in a different costume. It costs
+15 s. Two properties, deliberately:
+
+- **the red case** — a `st_value` high word patched to 1 must be refused BY NAME;
+- **a CONTROL** — an ordinary sub-4 GB link must NOT be refused. A guard that
+  fires on everything and a guard that fires on nothing are indistinguishable
+  from the red case alone.
+
+The gate then verified against the pre-guard linker: **FAIL**, printing the wrong
+address it accepted. Against the guarded one: **PASS**. The symtab offset and
+symbol index are **derived at gate time** via a name-relative `readelf` scan —
+`readelf` prints `[ 4]` as two fields and `[12]` as one, so any fixed `$N` breaks
+silently once a section index reaches double digits, patching the wrong byte and
+going green having tested nothing.
+
+**Latent, not hypothetical.** This layout sits near `0x401000` and
+`kernel/kernel.ld` at `0x100000`, so nothing trips it today. A higher-half kernel
+at `0xffffffff80000000` — the ordinary next step for an x86-64 kernel, and track
+D's direction — trips it immediately, and *before this slice it would have
+tripped it silently.*
+
+⇒ Same shape as slice 15, one layer down. There the evidence that a gate
+discriminates was mistaken for evidence it runs. Here a **comment asserting a
+guard** was mistaken for the guard. In both cases the artifact that would have
+told the truth — the call sites, the runner list — was never consulted, because
+the prose read like it already had been.
 

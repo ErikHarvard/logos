@@ -77,8 +77,20 @@ glyph ALIGNUP = la n. la a.
 
 #   A defined symbol's address = its section's assigned VA + st_value (its
 #   offset WITHIN that section). `va` is the caller's section->address map.
+#   ★ THE 32-BIT WINDOW IS ENFORCED HERE, NOT MERELY DECLARED. link.la reads
+#   the LOW 4 bytes of each 8-byte ELF64 field, and its header comment has long
+#   said the high word is "checked where it costs nothing so the failure is
+#   loud rather than silent". It was NOT: SYM_VHIGH was defined and exported and
+#   called by NOTHING (found 2026-09-08). A symbol at or above 4 GB therefore
+#   had its high word DISCARDED and linked to a plausible wrong address.
+#   ★★ AND THE READ-SIDE HOLE DEFEATED THE WRITE-SIDE GUARD. link_reloc.la's
+#   FITS32 refuses a value too large to write into a 4-byte field — but a
+#   st_value of 0x1_0000_0000 READS as 0, and 0 fits, so FITS32 waves it
+#   through. Guarding the write is worthless while the read silently truncates.
 glyph SYMADDR = la f. la ss. la va. la i.
-    add(va(SYM_SHNDX(f)(ss)(i)))(SYM_VALUE(f)(ss)(i))
+    IF(int_eq(SYM_VHIGH(f)(ss)(i))(0))
+      (la _. add(va(SYM_SHNDX(f)(ss)(i)))(SYM_VALUE(f)(ss)(i)))
+      (la _. error(concat("link: symbol value above 4 GB (32-bit window): ")(SYMNAME(f)(ss)(i))))
 
 #   A global DEFINITION this object exports: global, not undefined, and not a
 #   SECTION symbol — a section symbol's name IS its section's name, so without

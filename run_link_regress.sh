@@ -13,7 +13,7 @@ pass=0; fail=0
 # it does not match that prefix). It is not in build.sh for a STATED reason
 # (see there): it fails rather than skips when track A's asm.la half regresses.
 # On-demand here is where it belongs, alongside gate_link_kernel.sh.
-for g in gate_link_reloc.sh gate_link_layout.sh gate_link.sh gate_link_nsec.sh gate_link_script.sh gate_link_e2e.sh gate_seam_asm_link.sh gate_link_kernel.sh; do
+for g in gate_link_reloc.sh gate_link_layout.sh gate_link_hiaddr.sh gate_link.sh gate_link_nsec.sh gate_link_script.sh gate_link_e2e.sh gate_seam_asm_link.sh gate_link_kernel.sh; do
   [ -x "$g" ] || { echo "SKIP  $g (not executable)"; continue; }
   s=$(date +%s)
   out=$(timeout 3600 ./"$g" 2>&1)

@@ -2484,8 +2484,10 @@ say "LA linker: N objects -> a running ET_EXEC, no ld (link.la, track B)"
 # branches: the commit that added this line. So it was never wired — the
 # conclusion held, the earlier reasoning for it did not.
 # And it is the ONLY build-reachable cover for
-# `link_layout.la`: nothing imports the module, and exactly two gates exercise
-# it — this one and gate_link_kernel.sh (deliberately on-demand, ~36 min). So a
+# `link_layout.la`: nothing imports the module, and at the time it was wired
+# exactly two gates exercised it — this one and gate_link_kernel.sh
+# (deliberately on-demand, ~36 min). gate_link_hiaddr.sh, added below the same
+# day, is now a third. So a
 # committed 9 KB module had ZERO enforcement in the build — a regression in it
 # would have landed silently and green. (A bare `grep -l link_layout.la *.sh`
 # returns four scripts; the other two, gate_seam_asm_link.sh:25 and night3.sh:52,
@@ -2499,6 +2501,23 @@ say "LA linker: N objects -> a running ET_EXEC, no ld (link.la, track B)"
 # at single-byte resolution AND names the offending address.
 # Costs 23 s measured alone, 38 s under two concurrent builds — cheap either way.
 ./gate_link_layout.sh || ok=0
+# gate_link_hiaddr.sh — the 32-BIT WINDOW, enforced rather than declared.
+# ★ link.la reads the LOW 4 bytes of each 8-byte ELF64 field, and its header has
+# always said the high word is "checked where it costs nothing so the failure is
+# loud rather than silent". It was NOT: SYM_VHIGH was defined AND exported and
+# called by NOTHING, and STAB captured ST_VHI without ever reading it. Wired the
+# same day it was found (2026-09-08), because a guard nobody calls is this
+# morning's finding in a different costume.
+# ★★ The read-side hole DEFEATED the write-side guard: FITS32 refuses a value too
+# big for a 4-byte field, but a truncated read yields a SMALL number
+# (0x1_0000_0000 reads as 0) which FITS32 accepts. Both directions or neither.
+# ★★★ RED PATH MEASURED, and the gate re-verified against the pre-guard linker:
+# it exits 0 and prints "resolved greet -> 4198416" — a symbol genuinely at
+# 0x100000000 linked to 0x401010, plausible and wrong and green. The gate carries
+# a CONTROL too (an ordinary sub-4 GB link must NOT be refused), because a guard
+# that fires on everything and one that fires on nothing look identical from the
+# red case alone. Costs 15 s.
+./gate_link_hiaddr.sh || ok=0
 # gate_seam_asm_link.sh is deliberately NOT wired here, and this note exists so
 # that stays a DECISION rather than the accident gate_link_layout.sh was. It is
 # green (68 s), but its producer half is track A's asm.la: it stages

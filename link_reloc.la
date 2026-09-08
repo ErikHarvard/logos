@@ -1041,6 +1041,24 @@ glyph ST_INFO = la r. FST(SND(r))
 glyph ST_SHX  = la r. FST(SND(SND(r)))
 glyph ST_VLO  = la r. FST(SND(SND(SND(r))))
 glyph ST_VHI  = la r. SND(SND(SND(SND(r))))
+#   ★ A SYMBOL'S ADDRESS, WITH THE 32-BIT WINDOW ENFORCED. STAB already CAPTURES
+#   the high word of st_value (ST_VHI) — it was simply never looked at, so a
+#   symbol at or above 4 GB linked to its low word: a plausible wrong address,
+#   silently. link.la's header claims the high word is checked "so the failure
+#   is loud rather than silent"; SYM_VHIGH, the accessor written for that, was
+#   exported and called by NOTHING until 2026-09-08.
+#   ★★ Guarding the WRITE side alone was not enough. FITS32 (above) refuses a
+#   value too big for a 4-byte field, but a truncated READ produces a SMALL
+#   number — 0x1_0000_0000 reads as 0 — which FITS32 then accepts. The two
+#   guards are the same limit from opposite directions and only both together
+#   close it.
+#   Latent today (this layout sits near 0x401000 and kernel.ld at 0x100000) and
+#   reachable the moment anything links high — a higher-half kernel at
+#   0xffffffff80000000 is the obvious one.
+glyph STADDR = la r. la va.
+    IF(int_eq(ST_VHI(r))(0))
+      (la _. add(va(ST_SHX(r)))(ST_VLO(r)))
+      (la _. error(concat("link: symbol value above 4 GB (32-bit window): ")(ST_NM(r))))
 glyph STAB = la f. la ss. la st.
     (la n. (la strtail.
       (Z(la self. la i. la sy.
@@ -1616,7 +1634,7 @@ glyph DUPCHECK = la objs. (Z(la self. la l.
 glyph LOOKUP_P = la dfn. la rec. la va. la want. (Z(la self. la l.
     l(sub(0)(1))(la r. la t.
       IF(AND(dfn(r))(str_eq(ST_NM(r))(want)))
-        (la _. add(va(ST_SHX(r)))(ST_VLO(r)))
+        (la _. STADDR(r)(va))
         (la _. self(t)))))(RSTAB(rec))
 glyph LOOKUP = LOOKUP_P(DEFINES_R)
 
