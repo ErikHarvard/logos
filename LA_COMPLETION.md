@@ -765,6 +765,43 @@ every item below cites the ruling rather than inferring one.
   **So the sweep's C4 becomes a resolvability check, not a substring check**, and
   the item's original gate — *"fail the build on the first non-compliant one"* —
   stops failing 57% of the tree for composing correctly.
+
+  ★★★ **CORRECTION TO THIS ITEM'S CITATION NOTE (`b6f8b30`) — THE QUOTE IS REAL,
+  AND MY SEARCH COULD NOT HAVE FOUND IT.** I recorded that *"A bug IS Pathology 4
+  (Inversion) at the computational resolution"* is **not** in *Logos & Paradox*.
+  **It is** — verbatim, at `Logos & Paradox English.tex:4866`, in the same
+  sentence-pair as the PCP line I accepted:
+
+  > *The type checker IS the PCP of the compiler… **A `\textbf{bug}` IS Pathology 4
+  > (Inversion) at the computational resolution: the code says one thing, the
+  > program does another.** Debugging IS ∂_Λ applied to source code…*
+
+  ★ **The markup is why it hid.** The source reads `A \textbf{bug} IS Pathology 4`,
+  so `grep "A bug"` **cannot** match — not *did not*: the string does not exist in
+  the file although the sentence does. **My search's reachable set was "strings as
+  rendered"; the file's is "strings as marked up."** That is this item's own law —
+  *the reachable-input set is itself something to enumerate, not assume* — applied
+  to the instrument I used to check someone else, and it is the same shape as a
+  perturbation that cannot reach the arm: **a search over the wrong surface returns
+  a confident empty.**
+  ⚠ **And I had the line in my own results and cut it off.** My `Pathology 4` scan
+  printed `:4866` and I truncated the output at 180 characters, before the
+  sentence. Two independent failures, one conclusion.
+
+  ★★ **THE ASYMMETRY RUNS BOTH WAYS, WHICH IS THE PART TO KEEP.** I wrote that a
+  quote agreeing with my conclusion is the one to check hardest. I did check — and
+  **the check was wrong in the other direction**: I nearly discarded a TRUE quote
+  supporting a CORRECT mapping, on the strength of a search that could not have
+  found it. Agreement makes you under-check; suspicion makes you **trust a
+  disconfirming null**. ★ **A null result needs the same red path as a green one** —
+  the grep should have been validated against a string known to be on that line,
+  and `\textbf{type error}` would have failed identically.
+
+  **Substantively the mapping stands and is usable:** a bug **is** Inversion at the
+  computational resolution, whose prescribed cure is **Exposure — name the
+  divergence — not repair of the gate**. That is the disposition already chosen for
+  `SENSE` above (*give it a false branch; do not weaken the condition*), reached
+  independently and before the text was in hand.
 - `[✓]` **The spec pipeline emits no `export`.** — **LANDED in 9112c18
   (2026-08-27); confirmed by the Codex audit 2026-09-08.** Both halves of this
   item's own stated gate now hold, checked by running them rather than by reading
