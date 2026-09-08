@@ -362,7 +362,7 @@ P1 table drained: every process exited, kernel alive
   so a third costs exactly what the second costs. That is the property the
   `hh2c_stage` byte does not have.
 
-### P2 — fault attribution and containment ★ THE KEYSTONE
+### P2 — fault attribution and containment ★ THE KEYSTONE — **BUILT + GATED, 5 REDS WITNESSED (2026-09-08)**
 K2's 32 handlers diagnose and **halt**. They must instead: identify the current
 pid, record vector + error code + CR2 in its PCB, mark it **dead-by-fault**, tear
 its mapping down, and **return to the scheduler**. The machine survives; the
@@ -398,6 +398,45 @@ in PD[0], which is not present** under a process CR3:
 position-independent — those are fine.) The CPU faults reading the IDT descriptor,
 that fault cannot be delivered either, → double fault → triple fault → CPU stops.
 `-no-reboot` leaves QEMU alive, so a gate sees a **timeout, not an exit code**.
+
+**BUILT.** `kernel/build_p2.sh` + `kernel/gate_p2.sh`, wired into `build.sh` with
+all five red controls. Erik ruled restart to P6 (2026-09-08), so this gate stops at
+attribution + containment + survival. Green transcript:
+
+```
+P1 pid=1 val=A1
+FAULT pid=02 vec=06 err=0000000000000000 cr2=0000000000000000
+P1 pid=3 val=C3
+P1 pcb pid=01 state=03 fault=ff
+P1 pcb pid=02 state=04 fault=06
+P1 pcb pid=03 state=03 fault=ff
+P1 table drained: every process exited, kernel alive
+```
+exit 33.
+
+- **Ring-0 faults stay FATAL.** `isr_common` branches on the saved CS's CPL; only a
+  ring-3 fault reaches `p2_fault`. Containment is for processes — a kernel bug that
+  "recovered" is precisely the masking R3 forbids.
+- **The ordering is an assertion, not a coincidence.** `P1 pid=3` must appear *after*
+  the `FAULT` line: presence alone would not prove the scheduler was re-entered
+  **from the handler**.
+- **Announcing is not recording.** The PCB dump (`state=04 fault=06`) is asserted
+  separately, because a handler can print a perfect diagnosis and store nothing while
+  every transcript assertion still passes. P4 (`pwait`) reads those fields.
+
+| red | result |
+|---|---|
+| `--red` R1' | `DIAGNOSED-BUT-HALTED (exit 35, 'EXCEPTION 06', siblings never ran)` |
+| `--r2` attribution | pid follows the faulter: `FAULT pid=03`, `02` absent |
+| `--r3` ★ masking | the compiled-in map-and-resume DOES emit `RESUMED` |
+| `--r4` isolation | one shared PML4 → process 3 no longer reads `C3` |
+| `--r5` vector fidelity | `vec=0e`, err non-zero, `cr2=0000000020000000` |
+
+**★ R1' MOVED BECAUSE P2.0 LANDED, and that is the argument for separable bricks.**
+Before P2.0 this control was a silent wedge (rc 124, no output); now it is
+diagnosed-but-halted (rc 35). Two of §5.0.3's three predicted shapes have been
+observed, in the order the spec said. A baseline that *improves* because a
+prerequisite landed is worth more than one that was always going to be a timeout.
 
 #### P2.0 — the prerequisite brick — **BUILT + GATED, RED WITNESSED (2026-09-08)**
 

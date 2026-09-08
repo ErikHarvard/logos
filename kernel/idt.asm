@@ -81,6 +81,15 @@ ISR_NOERR 31
 %endmacro
 
 isr_common:
+%ifdef P2_ATTRIB
+    ; ── P2: whose fault was it? ────────────────────────────────────────────────
+    ; Frame: [rsp]=vector +8=errcode +16=rip +24=cs +32=rflags +40=rsp +48=ss.
+    ; CPL is the low 2 bits of the SAVED CS. A ring-0 fault stays FATAL and falls
+    ; through to K2's existing loud halt — containment is for PROCESSES, and a
+    ; kernel bug that "recovered" would be precisely the masking R3 forbids.
+    test    byte [rsp + 24], 3
+    jnz     p2_fault                    ; CPL 3 -> attribute it and contain it
+%endif
     LOADMSG exc_msg             ; "EXCEPTION "
     call    serial_puts
     mov     rax, [rsp + 0]      ; vector

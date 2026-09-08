@@ -7269,6 +7269,24 @@ bash kernel/gate_p2_0.sh || exit 1      # P2.0 ring-3 #UD diagnosed at rip=P1_UV
 # matches a hang, a lost serial, or too short a timeout.
 bash kernel/gate_p2_0.sh --red || exit 1 # P2.0 red control — the wedge, by name
 
+say "LogosInit P2 — fault attribution and containment (THE KEYSTONE of the ruling)"
+# K2 diagnoses a vector and HALTS. P2 names the OWNER, records vector/err/CR2 in that
+# process's PCB, marks it dead-by-fault, tears its mapping down, and RE-ENTERS the
+# scheduler — so the sibling after it still runs and the machine exits 33. Restart and
+# backoff are P6's, per Erik's 2026-09-08 ruling: restart needs P3 (pspawn), so a P2
+# gate asserting it could not go green until P3 existed.
+bash kernel/gate_p2.sh || exit 1        # P2 attribution + containment, exit 33
+# Five red controls, all in the build so none is a one-time claim. R3 is the one that
+# matters: a handler that "contains" by mapping the faulting page and RESUMING passes
+# every other assertion. --r3 compiles that wrong implementation in and requires the
+# RESUMED marker to appear, and checks the ELF actually changed first — an absorbed
+# perturbation would make a green here a false finding against a working assertion.
+bash kernel/gate_p2.sh --red || exit 1  # R1' baseline: diagnosed-but-halted, by name
+bash kernel/gate_p2.sh --r2 || exit 1   # R2  attribution — the pid follows the faulter
+bash kernel/gate_p2.sh --r3 || exit 1   # R3  containment vs MASKING ★
+bash kernel/gate_p2.sh --r4 || exit 1   # R4  isolation has power
+bash kernel/gate_p2.sh --r5 || exit 1   # R5  vector fidelity (#PF: vec 0e, err, CR2)
+
 say "K6 — ring 3, syscalls, and the typed IPC layer"
 bash kernel/gate_k6a.sh || exit 1   # K6a ring-3 privilege drop
 bash kernel/gate_k6b.sh || exit 1   # K6b the real LA image at ring 3

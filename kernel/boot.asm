@@ -84,6 +84,18 @@
   %define IPC
   %define HH2_PTS
 %endif
+; P2: FAULT ATTRIBUTION AND CONTAINMENT ★ THE KEYSTONE of Erik's ruling. K2's
+; handlers diagnose a vector and HALT the machine. P2 makes them name the OWNER —
+; the current pid — record vector + error code + CR2 into that process's PCB, mark
+; it dead-by-fault, tear its mapping down, and return to P1's scheduler. The machine
+; survives; the process does not, and it must NOT RESUME (a handler that "contains"
+; by mapping the faulting page and resuming passes every other assertion — see R3).
+; Its constants live in their own %ifdef so -dP1 and -dP2_0 objects stay
+; byte-identical: a bare `equ` lands in the object symbol table.
+%ifdef P2
+  %define P2_0                          ; a fault must be DELIVERABLE before it can
+  %define P2_ATTRIB                     ;   be attributed — P2.0 is the prerequisite
+%endif
 ; P2.0: make the fault path REACHABLE FROM EVERY ADDRESS SPACE — the prerequisite
 ; for P2 (fault attribution). MEASURED 2026-09-08: today a ring-3 fault inside a P1
 ; process produces NO diagnostic and NO exit code — the machine wedges — because the
@@ -163,6 +175,25 @@ P1_VAL_VA     equ P1_UVA + 0x100000   ; ★ the SHARED VA the isolation assertio
 P1_STK_TOP    equ P1_UVA + 0x1F0000   ; ring-3 stack top, inside that same page
 P1_PBASE      equ 0x08000000    ; process i's frame = P1_PBASE + i*2 MiB (128 MiB up)
 P1_SYS_GETPID equ 39            ; getpid() -> the pid the TABLE holds for "current"
+%endif
+%ifdef P2_ATTRIB
+; ── P2: fault attribution and containment ───────────────────────────────────
+P2_ST_FAULT equ 4               ; PCB state: dead-BY-FAULT (3 = clean exit; the
+                                ;   two are distinguished because a supervision
+                                ;   tree backs off crashes, not clean completions)
+%endif
+; The PROBE's constants belong to the probe, not to the handler. They were first
+; put inside %ifdef P2_ATTRIB, which broke the R1' control: --nofix builds the
+; probe WITHOUT the handler (-dP2_0 -dP2_FAULTPROBE) to get the no-P2 baseline,
+; and P2_FAULT_PID was then undefined. The gate reported it as a build failure
+; rather than skipping it, which is how it was caught.
+%ifdef P2_FAULTPROBE
+P2_PF_VA    equ 0x20000000      ; an UNMAPPED VA (PD[256]; a process maps only
+                                ;   PD[128]) — the #PF shape's target, so CR2 is
+                                ;   a known constant the gate can assert
+%ifndef P2_FAULT_PID
+  %define P2_FAULT_PID 2                ; which process faults; R2 rebuilds with 3
+%endif
 %endif
 
 ; K3b: the LA image's stack top. The native_codegen3 runtime arms a soft stack
@@ -1633,6 +1664,38 @@ p1_sched:
     iretq                               ; -> ring 3, in its own address space
 
 .p1_none:
+%ifdef P2_ATTRIB
+    ; ── dump the table before reporting ────────────────────────────────────────
+    ; The gate asserts on THIS, not only on the FAULT line: a handler could print a
+    ; correct diagnosis and record nothing, and every transcript assertion would
+    ; still pass. P4 (pwait) reads exactly these fields. fault=ff is the -1 written
+    ; at table-build time, i.e. "never faulted".
+    xor     ebx, ebx
+.p2_dump:
+    cmp     ebx, P1_NPROC
+    jae     .p2_dumped
+    mov     eax, ebx
+    imul    eax, eax, P1_PCB_SZ
+    lea     r12, [rel p1_pcb]
+    add     r12, rax
+    lea     rsi, [rel p2_pmsg]
+    call    serial_puts
+    mov     rax, [r12 + 0]
+    call    print_hex8
+    lea     rsi, [rel p2_smsg]
+    call    serial_puts
+    mov     rax, [r12 + 16]
+    call    print_hex8
+    lea     rsi, [rel p2_qmsg]
+    call    serial_puts
+    mov     rax, [r12 + 48]
+    call    print_hex8
+    lea     rsi, [rel nl_msg]
+    call    serial_puts
+    inc     ebx
+    jmp     .p2_dump
+.p2_dumped:
+%endif
     ; Every process in the table has exited and the KERNEL is still here to say so.
     ; That is the point of a table: a process ending is an entry changing state,
     ; not the end of the run. (P2 makes the same true of a process FAULTING.)
@@ -1658,6 +1721,91 @@ p1_sched:
 p1_done_msg: db "P1 table drained: every process exited, kernel alive", 10
 p1_done_len  equ $ - p1_done_msg
 
+%ifdef P2_ATTRIB
+; ---------------------------------------------------------------------
+;  p2_fault — FAULT ATTRIBUTION AND CONTAINMENT ★ the keystone.
+;
+;  Entered from isr_common when the saved CS says CPL 3: a PROCESS faulted, not
+;  the kernel. K2 named a vector and stopped the machine; this names the OWNER,
+;  records the cause in that process's PCB, unmaps its address space, and returns
+;  to the scheduler. The machine survives; the process does not.
+;
+;  We are already on the HIGH kernel stack (the CPU loaded TSS.rsp0 on the ring
+;  transition), which is shared through PML4[511] and therefore mapped under every
+;  process CR3 — so none of this touches memory the faulting process could have
+;  corrupted. Nothing is preserved: the process is dead, its registers are refuse.
+; ---------------------------------------------------------------------
+p2_fault:
+    mov     r13, [rsp + 0]              ; vector
+    mov     r14, [rsp + 8]              ; error code
+    mov     r15, cr2                    ; faulting address (#PF; stale otherwise)
+    mov     eax, [rel p1_cur]           ; WHO: the table's current index ...
+    imul    eax, eax, P1_PCB_SZ
+    lea     rbx, [rel p1_pcb]
+    add     rbx, rax                    ;   ... -> &PCB[cur]
+    ; ── announce, with the owner ───────────────────────────────────────────────
+    lea     rsi, [rel p2_fmsg]          ; "FAULT pid="
+    call    serial_puts
+    mov     rax, [rbx]                  ; PCB.pid — attribution is the new fact
+    call    print_hex8
+    lea     rsi, [rel p2_vmsg]          ; " vec="
+    call    serial_puts
+    mov     rax, r13
+    call    print_hex8
+    lea     rsi, [rel err_msg]          ; " err="   (shared with K2's line)
+    call    serial_puts
+    mov     rax, r14
+    call    print_hex64
+    lea     rsi, [rel p2_cmsg]          ; " cr2="
+    call    serial_puts
+    mov     rax, r15
+    call    print_hex64
+    lea     rsi, [rel nl_msg]
+    call    serial_puts
+    ; ── record it IN THE TABLE ─────────────────────────────────────────────────
+    ; Announcing is not recording. P4 (pwait) must be able to ask the table how a
+    ; process died long after the line scrolled past, and a supervision tree backs
+    ; off a CRASH but not a clean exit — so the two states are distinct.
+    mov     dword [rbx + 16], P2_ST_FAULT
+    mov     [rbx + 48], r13             ; fault cause = the vector
+%ifdef P2_MASK_INSTEAD
+    ; ★ R3's RED CONTROL, COMPILED IN — the WRONG implementation, on purpose.
+    ; "Contain" the fault by stepping past the faulting instruction and RESUMING
+    ; the process instead of killing it. Note what it still satisfies: the fault
+    ; was diagnosed, attributed to the right pid, recorded, the siblings run, the
+    ; machine survives and exits 33. Masking is indistinguishable from containment
+    ; on every assertion EXCEPT the marker the resumed process then prints. That
+    ; is why assertion 7 exists, and gate_p2.sh --r3 REQUIRES this build to emit
+    ; the marker — if it does not, assertion 7 is unfalsifiable and measures
+    ; nothing. (#UD is not restartable, so the saved RIP is stepped past the
+    ; 2-byte ud2; this control is the #UD shape only.)
+    add     rsp, 16                     ; drop the stub's vector + error code
+    add     qword [rsp], 2              ; step the saved RIP past the ud2
+    iretq                               ; ... and resume ring 3. WRONG, by design.
+%endif
+    ; ── tear the mapping down ──────────────────────────────────────────────────
+    ; Containment, not masking. Its address space stops existing, so a later
+    ; restart (P6) MUST rebuild from the pristine image under a new pid — it
+    ; cannot resume. The next CR3 load flushes the TLB, so no invlpg is needed.
+    mov     eax, [rel p1_cur]
+    shl     eax, 12
+    lea     rdi, [rel pd_p]
+    add     rdi, rax                    ; &pd_p[cur]
+    mov     qword [rdi + 128*8], 0      ; PD[128] -> not present
+    ; ── back to the scheduler, on a clean kernel stack ─────────────────────────
+    mov     rax, HIGH_BASE
+    add     rax, k6a_kstack_top
+    mov     rsp, rax
+    jmp     p1_sched
+
+p2_fmsg: db "FAULT pid=", 0
+p2_vmsg: db " vec=", 0
+p2_cmsg: db " cr2=", 0
+p2_pmsg: db "P1 pcb pid=", 0
+p2_smsg: db " state=", 0
+p2_qmsg: db " fault=", 0
+%endif
+
 ; ---------------------------------------------------------------------
 ;  P1 ring-3 process payload — ONE image, run by all three processes.
 ;
@@ -1681,6 +1829,32 @@ p1_payload:
     ; is what proves the fault was taken from ring 3 in the PROCESS address space
     ; rather than from the kernel (a kernel-CR3 fault reports a 0xffffffff8... rip).
     ud2
+%endif
+%ifdef P2_FAULTPROBE
+    ; P2's gate: ONLY the process whose pid is P2_FAULT_PID faults, so the gate can
+    ; assert that the SIBLING AFTER it still runs (containment) and that the reported
+    ; pid FOLLOWS the faulting process (R2: rebuild with a different pid, the report
+    ; must change with it). The pid comes from getpid — the table — not the image,
+    ; so all three processes still run identical bytes.
+    mov     eax, P1_SYS_GETPID
+    syscall
+    cmp     eax, P2_FAULT_PID
+    jne     .p2_nofault
+%ifdef P2_FAULT_PF
+    mov     byte [P2_PF_VA], 1          ; #PF (vec 0e): write to an unmapped VA.
+%else                                   ;   err = P0|W1|U1 = 6, CR2 = P2_PF_VA
+    ud2                                 ; #UD (vec 06): no error code
+%endif
+    ; ★ R3 — CONTAINMENT vs MASKING. Control reaches here ONLY if the handler
+    ; "contained" the fault by mapping the page and RESUMING the process. That
+    ; looks identical to real containment on every other assertion, so the gate
+    ; requires this line to NEVER appear. The process must DIE, not be papered over.
+    mov     eax, 1
+    mov     edi, 1
+    lea     rsi, [rel p2_resumed]
+    mov     edx, p2_resumed_len
+    syscall
+.p2_nofault:
 %endif
     mov     eax, P1_SYS_GETPID
     syscall                             ; -> rax = PCB[current].pid
@@ -1707,6 +1881,16 @@ p1_piddigit:  db "0"
 p1_valtag:    db "??"
               db 10
 p1_line_len   equ $ - p1_line
+%ifdef P2_FAULTPROBE
+; ★ Placed AFTER p1_line_len is taken, and that placement is load-bearing. When
+; this string sat between `db 10` and the `equ`, `$ - p1_line` swallowed it: every
+; process's ordinary val-line write ran 33 bytes long and emitted the R3 marker as
+; trailing garbage. The transcript then showed "RESUMED" after processes that never
+; faulted — which reads exactly like the masking failure R3 exists to catch, from a
+; string-length bug that has nothing to do with the fault handler.
+p2_resumed:   db "P2 pid=? RESUMED after its fault", 10
+p2_resumed_len equ $ - p2_resumed
+%endif
 p1_blob_len   equ $ - p1_payload
 %endif
 
