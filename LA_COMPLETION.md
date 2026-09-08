@@ -119,6 +119,54 @@ calibration certifying a third of an input; a dependency scan matching on
 positives; and the same scan then **under-reporting**, missing eight untracked
 files that were only found by acting on the result and re-checking. The
 instruments need this standard at least as much as the subjects do.
+### ★★ THE CODEX NAMES THIS FAILURE CLASS, AND ACCEPTS IT AS UNRESOLVED (2026-09-08)
+
+The corollary above was derived from accidents. It is also **written down in the
+governing spec**, as an accepted architectural risk — `CODEX AUTOPOIETICUS.tex`
+§15.15 *"Risks Internal to the Architecture"*, item (iii), verified verbatim:
+
+> *"A system that updates itself through ontological diffs can, if the diff engine
+> itself contains a defect, propagate that defect recursively… **errors in the
+> modification layer corrupt the layer that would detect errors.** … But undetected
+> failures in the **verification system itself** remain a genuine risk — this is the
+> halting problem applied to self-modifying systems, and **no architecture fully
+> resolves it.**"*
+
+★ **On 2026-09-08 four tracks hit exactly this, independently, in four organs, in
+one afternoon** — all four are failures **of the verification layer**, not of the
+subjects under test:
+- **E** — `SENSE`'s mapping makes AATC's C2 unable to go false for any module
+  (`9d3257b`); and three separate search-surface failures in the instruments used
+  to check it (`7c94bdd`, `2c43b97`).
+- **B** — a guard stopping at two of three address sites.
+- **C** — a check absorbing a new emitter of the same signal.
+- **Hub** — `gatesweep` printing nothing for 55 of 57 gates.
+
+**This reframes them from "four unrelated instrument bugs" to four instances of a
+named, accepted, architecturally unresolved risk.** ⚠ The practical consequence is
+*not* fatalism: the codex's own mitigation is **formal verification of the core
+components plus rollback**, and the operational form of that here is the standard
+above — **an instrument must prove it LOOKED, and a null needs the same red path as
+a green.** What the codex concedes is that this can never be *complete*; it does not
+concede that it can be skipped.
+
+★ **And the requirement has a name in the spec we did not know was written.**
+`§15.8.3` Meta-Security defines five recursive levels, of which **Level 4 is the
+Meta-Daemon `D(D)`: *"watches the watchers — monitors the integrity of the
+monitoring systems themselves."*** That is precisely the layer all four defects
+lived in. *(Positive-controlled before trusting: `Metacursive Audit` 2 hits,
+`Meta-Daemon` 3 hits.)*
+
+⚠ **FILED, NOT OPENED — the 18-row target.** `Def 15.27` (the *Metacursive Audit*)
+tabulates **eighteen** components each asserted to satisfy `X(X) = X`, and
+`Thm 15.28` proves `LogOS(LogOS) = LogOS` as a **conjunction over all eighteen** —
+so **one failing component falsifies the theorem**, and a conjunction reported as a
+single verdict hides which conjunct is load-bearing. **That is the `crit:compliance`
+shape — four conditions, two unexercised — scaled to eighteen.** The Meta-Note
+hedges in the same breath: *"the audit confirms no such vulnerability exists **at
+the architectural level**"* — so whether the **build** satisfies 18 of 18 is
+**unmeasured, and the codex does not claim it is.** A large item; recorded here so
+it is not re-derived.
 
 ---
 
