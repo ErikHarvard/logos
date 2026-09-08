@@ -782,6 +782,53 @@ registers. `trimono.la` now gates all three. What remains:
 - `[ ]` **The language deepens with its agents** — the loop optimises COST, never
   DEPTH or expressivity. Needs a depth-directed `selfopt` mode.
 
+### CODEX AUDIT 2026-09-08 — the Seven Modules and the Autoclave hierarchy
+
+`lawbox{The Seven Modules}` (:2691-:2709) names the cryptographic face of the
+stack: **Autoclave** (𝔄, key management), **AletheiaFS** (𝔉, encrypted
+filesystem), **HermesGram** (𝔥, P2P messaging), **ChronosMail** (ℭ, email),
+**AegisNet** (𝔑, networking), **OntoID** (𝔦, identity), **MnemosyneVault** (𝔙,
+archival storage). **None of the seven exists as a module.** What exists is the
+SUBSTRATE they are built from — `sha256.la`, `chacha20.la`, `poly1305.la`,
+`aead.la`, `hkdf.la`, and the `xmss`/`wotsp` signature layer — so this is a
+missing assembly layer, not missing cryptography. AletheiaFS is already Track C's
+Tier 0 item 3; the other six are unassigned.
+
+- `[ ]` **No KEM — the Autoclave hierarchy is broken at Level 3.** The Autoclave
+  (:2716-:2736) specifies five key levels: 0 mnemonic seed → 1 master key
+  (Argon2id+BLAKE3) → 2 identity keys (HKDF) → 3 **session keys (Kyber-1024 KEM
+  per connection, forward secrecy)** → 4 object keys (ChaCha20+BLAKE3). **Exactly
+  one of the five is implemented** — Level 2, `hkdf.la`. Level 3 has no
+  implementation and, unlike the signature choice below, **no documented
+  substitute**: a functional search for key encapsulation across every `.la`
+  (`encapsulat`, `KEM`, `key_exchange`, `ecdh`, `x25519`) returns **zero** hits,
+  not substring artifacts — nothing at all. Without a KEM there is no
+  per-connection forward secrecy, so `logosipc.la`'s "Γ-seal encryption deferred"
+  and HermesGram's "forward-secret" both rest on an absent primitive. Gate: two
+  parties derive the same session key over a channel carrying only public
+  values, and the derived key decrypts an `aead.la` message. Red path: assert a
+  transcript with ONE flipped byte yields a different key and the AEAD open
+  FAILS — a KEM gate that only tests the happy path passes for a KEM that
+  returns a constant. *Tier 5, and it blocks the Γ-seal work in Tier 0.*
+- `[ ]` **Levels 0, 1 and 4's hash are absent** — no mnemonic-seed derivation, no
+  Argon2id (the memory-hard step that makes a 24-word seed brute-force-resistant
+  is precisely what SHA-256 cannot substitute for), and no BLAKE3. `sha256.la`
+  covers the hashing role at Level 4 in practice. Gate: a known-answer test per
+  primitive against its RFC/reference vectors. Red path: assert a single-bit
+  change in the seed changes the master key, and that the KAT fails when one
+  vector is corrupted. *Tier 5.*
+
+★ **NOT a divergence — checked before filing.** The Codex names Dilithium3 and
+SPHINCS+ (:2740) where the repo builds WOTS+/XMSS. That is a **documented,
+reasoned choice**, not drift: `ROADMAP.md:1292-1298` records it — a lattice
+scheme needs a big-integer layer built first, a hash-based scheme needs only
+SHA-256, which already exists, "so the post-quantum stance is taken here rather
+than deferred." Both are post-quantum; XMSS is stateful, which is why the leaf
+index register (`xmssidx.la`) exists at all. Recorded so a later audit does not
+re-open it as a defect.
+
+---
+
 ### CODEX AUDIT 2026-09-08 — the Thirteen-Layer Sovereign Stack
 
 `CODEX_AUTOPOIETICUS.tex` defines **The Thirteen-Layer Sovereign Stack**
