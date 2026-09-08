@@ -31,8 +31,21 @@ HEAPSCOPE="${HEAPSCOPE:-$LOGOS/heapscope.py}"
 BOUND_MIB="${BOUND_MIB:-64}"     # GREEN if peak heap <= this. Leak drives it to 100s-1000s.
 N="${N:-4000000000}"             # big enough to outlive sampling and expose the drift
 
+# ★ THIS SKIPPED TO GREEN, AND THE FILE 40 LINES AWAY SAID IT SHOULD NOT.
+# It used to `echo "SKIP ..."; exit 0` on a missing prerequisite, while this
+# gate's own call site (build.sh, Stage 3b (a'')) declares the opposite rule:
+# "a gate file missing means a broken checkout, not an optional check". Same
+# principle, same commit, opposite verdicts.
+# What settles it is not style but a measurement: ALL THREE prerequisites are
+# either TRACKED (native_codegen3.la, heapscope.py) or BUILT BY build.sh itself
+# (tiny_host). So in any valid checkout they are always present, and this branch
+# can ONLY fire when something is already broken -- whereupon it converted that
+# broken state into exit 0. A SKIP standing in for a verdict is the skip-to-green
+# shape; a gate whose own input is absent must go RED, not quietly pass.
+# An explicit LOGOS=/HEAPSCOPE= pointing somewhere real remains the way to run
+# this against another tree; it is absence that is now fatal, not relocation.
 for f in "$LOGOS/tiny_host" "$LOGOS/native_codegen3.la" "$HEAPSCOPE"; do
-    [ -e "$f" ] || { echo "SKIP  gate_rss: missing $f"; exit 0; }
+    [ -e "$f" ] || { echo "FAIL  gate_rss: missing prerequisite $f -- it is tracked or built by build.sh, so its absence is a broken checkout, not a reason to pass"; exit 1; }
 done
 
 WD=$(mktemp -d)
