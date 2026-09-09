@@ -1357,3 +1357,71 @@ process, including the one asking* — check `pgrep -x <name>`, or a path that
 cannot appear in the query itself. Fifth instance today of an instrument
 answering honestly about a different object than the one held.
 
+## Slice 18 — the stack guard was OPERATIONAL, not structural (2026-09-08)
+
+Slice 17 left the real question open: `link.la` died on D's 86 KB `boot.o` with
+`error: expression nesting too deep (C stack guard)`. I had assumed depth scales
+with input and that bounding the recursion was the fix. **Measurement says
+otherwise — the whole failure was an inherited 8 MB `ulimit -s`.**
+
+**The guard is not a depth counter.** It is a live stack-address probe armed
+relative to `RLIMIT_STACK` (`tiny_host.c:992`):
+
+    stack_floor = gc_stack_base - (usable - 512u * 1024);
+
+so **the ceiling moves with `ulimit -s`**. Measured on well-formed deep programs
+(`I(I(…("a")…))`):
+
+    8 MB    depth  50 000 ok · 100 000 GUARD
+    256 MB  depth 100 000 ok · 300 000 ok · 600 000 ok
+
+**★★ AND `unlimited` IS THE WRONG LEVER — IT TIGHTENS THE GUARD.**
+`tiny_host.c:994` keeps its 8 MB fallback when `rlim_cur == RLIM_INFINITY`, so
+the limit is computed as if the stack were 8 MB no matter how large it really is.
+Verified: depth 100 000 **fails** under `ulimit -s unlimited` and **passes** under
+`262144`. Anyone reaching for the obvious remedy makes it worse and gets the same
+error message either way.
+
+**The controlled run — one variable moved.** D rebuilt `boot.o` to 39,936 bytes
+mid-investigation (the size the gate was tuned for), so simply re-running would
+have moved *two* variables and passed for the wrong reason. The failing run had
+copied the original into `.kseam`, so the experiment used **that preserved
+86,656-byte object** (`440822eb…`) with only the stack limit changed:
+
+    stack limit in effect: 262144 KB
+    linked 1 objects into 2 segments, entry 1048588
+    rc=0   link_out 91,432 bytes   16:40:03 -> 19:21:58  (2h42m)
+
+**And the image is CORRECT, not merely produced** — checked against `ld` on the
+same object:
+
+    entry          ld 0x10000c   ours 0x10000c
+    LOAD 1 filesz  ld 0x53a      ours 0x53a
+    LOAD 2 filesz  ld 0x135c2    ours 0x135c2
+    objcopy -O elf32-i386        accepted   (the 07-23 blocker)
+
+`0x135c2` is **79298** — the exact number slice 17's stale run quoted as *ld's*,
+against "ours 46067". `link.la` matches `ld` on this object; that FAIL was the
+stale artifact from end to end.
+
+**★ A SECOND LATENT DEFECT, found only because the first was fixed.** The gate
+capped the link at `timeout 7200` (2 h). The successful link takes **2h42m**. So
+raising the stack alone would have left the gate failing — at the cap this time,
+with a *different* misleading message. Two independent limits, both below what
+the work needs, and the first one hid the second. Cap raised to `14400`.
+
+**Fixed in the gate**: it raises its own `ulimit -s` to a large **finite** value
+before linking and prints the limit that actually applied, so a future failure can
+be attributed instead of guessed at. *A gate must not inherit a limit that decides
+its verdict* — the ambient shell's 8 MB was silently part of the assertion.
+
+*Honest scope:* the fix is verified at the link + image level (above), **not** by a
+full end-to-end gate re-run, which is another ~3 h. The QEMU boot check also stays
+blocked for an unrelated reason recorded in slice 17: `ld`'s own control image does
+not boot in this environment.
+
+*Recorded for later, not acted on:* the link peaked at **12.4 GB RSS** for an 86 KB
+input (~150 000×). Not a leak — the host has a GC, so that is live data — and no
+risk on this machine (188 GB, 143 free), but it is the next constraint to bind if
+object sizes grow.
+

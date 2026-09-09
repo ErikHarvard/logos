@@ -84,8 +84,26 @@ if [ "$FORCE" = 1 ] || [ "$stale" = 1 ]; then
     #   NEXT run would skip the link and call the stale artifact fresh.
     #   Removing it first makes the existence test mean what it says.
     rm -f "$K/link_out" "$K/link_out.inputs"
-    ( cd "$K" && printf -- '--script=kernel.ld\nboot.o\n' > link_inputs.txt \
-      && timeout 7200 ./tiny_host link_reloc.la ) >"$K/link.log" 2>&1
+    # ★ RAISE THE STACK BEFORE LINKING — the 2026-09-08 failure was THIS, and
+    #   nothing else. tiny_host's guard is not a depth counter: it is a live
+    #   stack-address probe armed 512 KB below RLIMIT_STACK (tiny_host.c:992),
+    #   so the ceiling MOVES WITH `ulimit -s`. Inheriting a shell's default 8 MB
+    #   is what killed the 86 KB link at 1h55m with "expression nesting too
+    #   deep". Measured, same object, only this variable moved: at 8 MB it dies;
+    #   at 256 MB it links in 2h42m and the image MATCHES ld — entry 0x10000c,
+    #   both LOAD filesz identical (0x53a, 0x135c2). A gate must not inherit a
+    #   limit that decides its verdict.
+    # ★★ FINITE, NEVER `unlimited`. tiny_host.c:994 keeps its 8 MB fallback when
+    #   rlim_cur == RLIM_INFINITY, so `ulimit -s unlimited` makes the guard
+    #   TIGHTER, not looser — verified: depth 100000 dies under `unlimited` and
+    #   passes under 262144. The obvious remedy is the wrong one.
+    #   `ulimit -s` may be refused (hard limit); we report what actually applied
+    #   so a future failure can be attributed instead of guessed at.
+    eff=$( ulimit -s 262144 2>/dev/null; ulimit -s )
+    echo "NOTE  link_kernel: stack limit for this link = ${eff} KB (shell default was $(ulimit -s) KB)"
+    ( ulimit -s 262144 2>/dev/null
+      cd "$K" && printf -- '--script=kernel.ld\nboot.o\n' > link_inputs.txt \
+      && timeout 14400 ./tiny_host link_reloc.la ) >"$K/link.log" 2>&1
     lrc=$?
     # ★★ AND THE EXIT STATUS IS CHECKED, not just the artifact. These are two
     #   independent failures: a linker can die leaving a stale file (caught by the
@@ -93,7 +111,7 @@ if [ "$FORCE" = 1 ] || [ "$stale" = 1 ]; then
     #   tiny_host DOES exit non-zero on the stack guard — verified 2026-09-08,
     #   rc=1 with that exact message — so this is a live check, not a formality.
     if [ "$lrc" -ne 0 ]; then
-        [ "$lrc" -eq 124 ] && why="TIMED OUT after 7200s" || why="exited $lrc"
+        [ "$lrc" -eq 124 ] && why="TIMED OUT after 14400s" || why="exited $lrc"
         echo "FAIL  link_kernel: link.la $why — no image produced: $(tail -1 "$K/link.log")"
         exit 1
     fi
