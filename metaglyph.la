@@ -193,7 +193,7 @@ glyph OP_DIFF  = DIR(PRIM("VOID"))(PRIM("RELATION"))        # ∂ differentiate 
 glyph OP_BOUND = CONT(PRIM("FORM"))(PRIM("DEPTH"))          # δ bound        (2)
 glyph OP_COMP  = SYN(PRIM("BECOMING"))(PRIM("FORM"))        # γ compose      (3)
 glyph OP_RECOG = MC(PRIM("RECOGNITION"))                    # ρ recognize    (4)  ≡ SR_ABOUT
-glyph OP_INTEG = SYN(PRIM("LOVE"))(PRIM("BEING"))           # 𝔄 integrate    (5)
+glyph OP_INTEG = SYN(PRIM("LOVE"))(PRIM("RECOGNITION"))     # 𝔄 integrate    (5)  ≡ COMPASSION
 
 # canon.la is not importable (no export line), so SR_ABOUT is re-stated here the
 # same way metalogic_spec re-inlines the κ machinery. If canon.la's definition
@@ -227,6 +227,16 @@ glyph OPS_DISTINCT =
 #    decomposition to MC(SELF) and this fires) ──
 glyph RHO_IS_ABOUT = str_eq(CANON(OP_RECOG))(CANON(SR_ABOUT_HERE))
 glyph RHO_CANON_OK = str_eq(CANON(OP_RECOG))("↻(RECOGNITION)")
+
+# ── ★ THE SECOND INTENDED IDENTITY (Erik's ruling 2026-09-08). Correcting 𝔄 to the
+#    specification's ⊗(LOVE,RECOGNITION) makes it the SAME TERM as Compassion
+#    (build.sh:1405 defines COMPASSION = SYN(PRIM("LOVE"))(PRIM("RECOGNITION"))).
+#    That is not a collision to repair — it is the ρ ≡ SR_ABOUT situation again:
+#    two names found to name ONE meaning. Per the note above, a merely tolerated
+#    identity is indistinguishable from a collision nobody noticed, so it is
+#    asserted POSITIVELY here. RED path: revert 𝔄 to ⊗(LOVE,BEING) and this fires.
+glyph COMPASSION_HERE     = SYN(PRIM("LOVE"))(PRIM("RECOGNITION"))
+glyph INTEG_IS_COMPASSION = str_eq(CANON(OP_INTEG))(CANON(COMPASSION_HERE))
 
 # ── OPERATE-ON: the capability the dispatch form cannot express. Feed an
 #    operator as an OPERAND to a mode and canonicalize the result. ──
@@ -270,6 +280,7 @@ glyph MAIN =
     SEQ(print(concat("five operators pairwise distinct ? ")(YN(OPS_DISTINCT))))(
     SEQ(print(concat("★ ρ ≡ SR_ABOUT (intended identity) ? ")(YN(RHO_IS_ABOUT))))(
     SEQ(print(concat("★ κ(ρ) = ↻(RECOGNITION) ? ")(YN(RHO_CANON_OK))))(
+    SEQ(print(concat("★ 𝔄 ≡ COMPASSION (intended identity) ? ")(YN(INTEG_IS_COMPASSION))))(
     SEQ(print(concat("OPERATE-ON ⊗(∂,δ) = ")(OP_AS_OPERAND)))(
     SEQ(print(concat("COMPOSE  γ∘ρ      = ")(OP_COMPOSED)))(
-        print(concat("rank ∂<δ<γ<ρ<𝔄 read FROM the glyph ? ")(YN(RANK_ORDER)))))))))))))))))))))))))))))))
+        print(concat("rank ∂<δ<γ<ρ<𝔄 read FROM the glyph ? ")(YN(RANK_ORDER))))))))))))))))))))))))))))))))

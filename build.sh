@@ -5466,7 +5466,8 @@ for w in "∂ diff    = ▷(VOID,RELATION)" \
          "δ bound   = ⊂(FORM,DEPTH)" \
          "γ comp    = ⊗(BECOMING,FORM)" \
          "ρ recog   = ↻(RECOGNITION)" \
-         "𝔄 integ   = ⊗(LOVE,BEING)" \
+         "𝔄 integ   = ⊗(LOVE,RECOGNITION)" \
+         "★ 𝔄 ≡ COMPASSION (intended identity) ? YES" \
          "five operators pairwise distinct ? YES" \
          "★ ρ ≡ SR_ABOUT (intended identity) ? YES" \
          "OPERATE-ON ⊗(∂,δ) = ⊗(▷(VOID,RELATION),⊂(FORM,DEPTH))" \
