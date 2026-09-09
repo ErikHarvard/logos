@@ -7364,6 +7364,42 @@ bash kernel/gate_comp_session.sh || exit 1   # HAL.4d the interactive compositor
 bash kernel/gate_hal5.sh || exit 1   # HAL.5a NIC discovery (RTL8139)
 bash kernel/gate_hal5b.sh || exit 1   # HAL.5b NIC send + receive — the first DMA driver
 
+# ── ★ GATES THAT EXISTED, PASSED, AND WERE INVOKED BY NOTHING (2026-09-08) ───
+#  From the GATE CENSUS above: 30 of 89 tracked gate scripts were never invoked.
+#  These are the ones that earned wiring — each BUILDS its own prerequisite and
+#  FAILS LOUDLY, and each was RUN AND MEASURED before being wired here, not
+#  trusted on ROADMAP's word. That distinction is the whole census: all four of
+#  the PS/2 gates are marked "[x] DONE + gated" in ROADMAP while nothing ran
+#  them, and the same claim was false sixteen times over for the nic5 arc.
+#
+#  ★ INVOCATION IS NOT HEALTH, and reading rather than classifying is what caught
+#  it: kernel/gate_hal_idle.sh sat in this same bucket until I read its header —
+#  "THIS GATE IS EXPECTED TO BE RED... committed RED on purpose", a real substrate
+#  defect in track A's rt_init. Wiring it would have turned this suite red. A
+#  census that classifies by STRUCTURE will hand you a red gate to wire.
+#
+#  ★ COST IS REAL AND IS NOT HIDDEN — the Freeze Q3 rule, same as the block above.
+#  MEASURED on this machine, one lock acquisition per gate:
+#      gate_mouse            883 s   PASS
+#      gate_wheel           1255 s   PASS
+#      gate_comp_term_hal4e   16 s   PASS   (fast path: native_codegen3_selfhost.bin)
+#  ≈ 36 MINUTES, dominated by the LA COMPILE, not the QEMU run: mouse and wheel
+#  rebuild their driver through tiny_host on every run, while comp_term_hal4e has
+#  a self-hosted compiler and costs almost nothing. Ordered CHEAPEST FIRST so a
+#  regression surfaces early. NO skip flag, deliberately — an opt-out is how the
+#  other 52 got where they are.
+#
+#  NOT WIRED YET, and INCONCLUSIVE rather than failing: kernel/gate_pointer.sh and
+#  kernel/gate_cursor.sh both hit rc 124 — MY 1800 s harness timeout, not a gate
+#  verdict. Neither has the selfhost fast path (build_pointer/build_cursor still go
+#  through tiny_host + native_codegen3.la), so they simply need longer. They are
+#  being re-measured; "not yet verified" must not be spelled the same way as
+#  "failed", which is the same rule this census applied to SKIP and exit 0.
+say "HAL drivers the suite never ran — mouse, wheel, terminal window (~36 min, measured)"
+bash kernel/gate_comp_term_hal4e.sh || exit 1  #   16 s  HAL.4h terminal window on the metal
+bash kernel/gate_mouse.sh || exit 1            #  883 s  HAL.2c PS/2 mouse: AUX enable + packet decode
+bash kernel/gate_wheel.sh || exit 1            # 1255 s  HAL.2e scroll wheel: the IMPS-2 knock + Z axis
+
 say "Higher-half — the kernel running wholly above the canonical split"
 bash kernel/gate_hh1.sh || exit 1   # HH1 higher-half
 bash kernel/gate_hh1b.sh || exit 1   # HH1b the kernel runs WHOLLY in the higher half
