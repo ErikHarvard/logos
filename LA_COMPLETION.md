@@ -903,10 +903,49 @@ registers. `trimono.la` now gates all three. What remains:
   never collapse two previously κ-distinct forms, and must strictly add a new
   κ-class). This is also the executable half of the Sapir–Whorf *retained*
   claim.
-- `[ ]` **Derived glyph catalogue + agreement gate.** `familytree.la` covers 17
-  HAND-DECLARED glyphs and is already stale by ≥4 (`metaglyph`'s four operator
-  glyphs, from the very module it imports). Gate G3: declared and derived
-  catalogues agree, keyed on NORMK, both directions. **RED on arrival.**
+- `[✓]` **M11a — the catalogue IMPORTS what it catalogues.** **DONE 2026-09-08
+  (`4bcdb07`).** `familytree.la`'s `CAT` hand-transcribed seventeen glyph bodies,
+  and the note above it said why: *"canon.la has no export line, so its glyphs
+  cannot be imported."* True when written, **false at HEAD** — `canon.la:100`
+  exports 49 names including all ten self-relations. Sixteen of seventeen entries
+  are now the **source glyphs**; `NU_STAR` stays local because `metaglyph.la` does
+  not export it (named, not hidden).
+  ★ **Output is BYTE-IDENTICAL to the pin** (`catalogue=17 | G1:T | G2=8:T |
+  maxdepth=2`), and that identity IS the drift test: had the transcription
+  drifted, the refactor would have moved the line. It did not — so the copies
+  were faithful, and now they cannot stop being.
+  Measured before editing, not assumed: importing `canon.la` beside
+  `metaglyph.la` raises no collision (both export `CANON` and `KAPPA`
+  **token-identically** — 387 tokens, sha `cc39f4373cc3e648`); a local
+  constructor after an import rebinds cleanly; an imported node interoperates
+  with a local destructor, because the six-continuation Scott encoding makes
+  nodes **behavioural, not nominal**.
+- `[ ]` **M11a residue — the catalogue is INCOMPLETE, and now cheap to complete.**
+  Re-measured 2026-09-08: the old item's *"stale by ≥4"* is **4 of 4 confirmed** —
+  `OP_DIFF`, `OP_BOUND`, `OP_COMP`, `OP_INTEG` are all exported by `metaglyph.la`
+  and all absent from `CAT`; only `OP_RECOG` is present (as `OP_RHO`). Since M11a
+  the fix is one line each. ⚠ It is a **behaviour change, not a refactor**:
+  `catalogue=17` becomes `21`. G2 is unaffected (none is unary ↻, so the count
+  stays 8) and `MAXD` is unaffected (all are depth 1, `NU_STAR` still 2), and
+  `build.sh` pins G1 and G2 but not the catalogue count — verified.
+- `[ ]` **M11b — the ancestry walk.** `ANCESTRY(g)`: any glyph's complete line back
+  through every COLLAPSE to the nine primitives and the dyad, *as a computation
+  rather than an archive* (WP `§sec:compression:3150`). **Both pieces already
+  exist** — `DECOMP` (`glyphdag.la`) recovers the tree, `DEPTHOF`
+  (`familytree.la:138`) measures it. **Depends on: M11a (done).**
+  ⚠ Scope correction: the paper calls this *"the query over the standing DAG"*.
+  **There is no standing DAG.** `glyphdag.la` hash-conses **one form at a time**;
+  the only registry is `CAT`. M11b is the walk; M11c is what makes it a registry.
+- `[ ]` **M11c — auto-registration.** The paper's own stated bound: *"nothing yet
+  registers a newly minted glyph automatically."* A mint must enter the registry
+  without a hand edit. **Depends on: M11b.** Pairs with the coinage organ's owed
+  **Ratchet Gate** (a coinage may never collapse two κ-distinct forms and must
+  strictly add a κ-class) — same joint, approached from the two sides.
+  ★★ **The depth-directed `selfopt` mode is BLOCKED ON M11c**, and this is why:
+  𝔇 computed over a hand-listed catalogue measures **the list, not the language**.
+- `[ ]` **Gate G3 — declared and derived catalogues agree**, keyed on NORMK, both
+  directions. **RED on arrival.** Depends on M11c (there is no derived catalogue
+  until mints self-register).
 - `[ ]` **κ\* — meta-pattern compression.** When the same compression pattern
   recurs, encode it as a meta-glyph representing the rule of integration.
   Nothing detects or promotes.
