@@ -81,7 +81,15 @@ glyph SORTC = la mk. la a. la b. IF(STR_LE(CANON(a))(CANON(b)))(la _. mk(a)(b))(
 glyph CANONIQ = Z(la self. la node.
     node
         (la nm. PRIM(nm))
-        (la a. la b. SYN(self(a))(self(b)))                  # ⊗ NON-commutative (tex:2837)
+        (la a. la b. (la na. la nb.                          # ⊗ NON-commutative (tex:2837)
+              # ★ R-A, THIRD REGISTER. ⊗(A,A) ≡ A for the ARCHĒ ALONE; every other
+              # ⊗(A,A) stays a distinct compound (Erik's ruling 2026-08-24).
+              # This copy was made 2026-09-06 WITHOUT the rule, so this renderer
+              # returned ⊗(∃,∃) where κ and the phonology both return ∃ — two forms
+              # for one concept, in the register that had no gate. Restored 2026-09-08.
+              # Keyed on the CANONICAL FORM via CANON, never on a glyph name.
+              IF(AND(str_eq(CANON(na))(CANON(nb)))(str_eq(CANON(na))("∃")))
+                (la _. na)(la _. SYN(na)(nb)))(self(a))(self(b)))
         (la a. la b. SORTC(CON)(self(a))(self(b)))           # ⊕ commutative → sort
         (la a. la b. DIR(self(a))(self(b)))                  # ▷ directional → keep
         (la a. la b. CONT(self(a))(self(b)))                 # ⊂ directional → keep
